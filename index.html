@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正在開啟預約系統...</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
+        .container { text-align: center; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        p { color: #555; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="loader"></div>
+        <p>正在為您開啟預約對話，請稍候...</p>
+    </div>
+
+    <script>
+        const LIFF_ID = "2009064962-w2XqDG82"; 
+        const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
+        const LINE_OA_ID = "@138lkhjv"; 
+
+        async function main() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+                const profile = await liff.getProfile();
+                const urlParams = new URLSearchParams(window.location.search);
+                const gclid = urlParams.get('gclid');
+
+                if (gclid) {
+                    await fetch(N8N_WEBHOOK_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            lineUserId: profile.userId,
+                            lineName: profile.displayName,
+                            gclid: gclid,
+                            source: 'GitHub_Pages_Bridge'
+                        })
+                    });
+                }
+                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+            } catch (err) {
+                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+            }
+        }
+        main();
+    </script>
+</body>
+</html>
