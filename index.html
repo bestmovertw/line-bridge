@@ -6,11 +6,11 @@
     <title>正在開啟預約系統...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
         .container { text-align: center; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; }
+        p { color: #555; font-size: 16px; font-weight: 500; }
     </style>
 </head>
 <body>
@@ -20,38 +20,59 @@
     </div>
 
     <script>
+        // === 請修改以下設定 ===
         const LIFF_ID = "2009064962-w2XqDG82"; 
         const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-        const LINE_OA_ID = "@138lkhjv"; 
+        const LINE_OA_ID = "@138lkhjv"; // 格式如 @abc1234
+        // =====================
 
         async function main() {
             try {
+                // 1. 初始化 LIFF
                 await liff.init({ liffId: LIFF_ID });
+
+                // 2. 判斷登入狀態
                 if (!liff.isLoggedIn()) {
                     liff.login();
                     return;
                 }
+
+                // 3. 取得用戶資料與網址參數
                 const profile = await liff.getProfile();
                 const urlParams = new URLSearchParams(window.location.search);
                 const gclid = urlParams.get('gclid');
 
+                // 4. 如果有 GCLID，發送給 n8n
                 if (gclid) {
+                    // 使用 fetch 並優化傳輸成功率
                     await fetch(N8N_WEBHOOK_URL, {
                         method: 'POST',
+                        mode: 'cors', 
                         headers: { 'Content-Type': 'application/json' },
+                        keepalive: true, // 重要：確保頁面關閉或跳轉時請求不被中斷
                         body: JSON.stringify({
                             lineUserId: profile.userId,
                             lineName: profile.displayName,
                             gclid: gclid,
-                            source: 'GitHub_Pages_Bridge'
+                            source: 'GitHub_Pages_Bridge',
+                            timestamp: new Date().getTime()
                         })
-                    });
+                    }).catch(err => console.error("Webhook Send Error:", err));
                 }
-                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+
+                // 5. 執行跳轉 (稍微延遲確保 script 執行完畢)
+                setTimeout(() => {
+                    // 優先嘗試開啟 LINE 內部聊天室，失敗則導向一般連結
+                    window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                }, 300);
+
             } catch (err) {
+                console.error("LIFF Main Process Error:", err);
+                // 發生任何錯誤時，為了不影響用戶體驗，強制跳轉回 LINE
                 window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
             }
         }
+
         main();
     </script>
 </body>
