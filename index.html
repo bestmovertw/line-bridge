@@ -23,7 +23,7 @@
         const gclid = urlParams.get('gclid');
 
         async function main() {
-            // --- 1. 第一時間發送 GCLID (保證數據必傳) ---
+            // 1. 優先發送 GCLID 給 n8n (精簡傳送，不帶多餘參數)
             if (gclid && !sessionStorage.getItem('sent')) {
                 fetch(N8N_WEBHOOK, {
                     method: 'POST',
@@ -34,37 +34,35 @@
                 sessionStorage.setItem('sent', 'true');
             }
 
-            // --- 2. 防跳針鎖：如果這頁已經嘗試過跳轉，就停下來出按鈕 ---
+            // 2. 防跳針鎖：如果這頁已經嘗試過跳轉，立刻停住
             if (sessionStorage.getItem('redirected')) {
                 showButton();
                 return;
             }
 
             const isMobile = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
-            const targetUrl = isMobile 
-                ? `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}` 
-                : `https://line.me/R/ti/p/${LINE_OA_ID}`;
-
-            // --- 3. 執行跳轉 ---
-            sessionStorage.setItem('redirected', 'true');
             
-            if (isMobile) {
-                // 手機版：嘗試自動喚起
-                window.location.replace(targetUrl);
-                // 3秒後如果還在這頁，代表被攔截(可能是無痕)，出按鈕
-                setTimeout(showButton, 3000);
-            } else {
-                // 電腦版：直接轉
-                window.location.replace(targetUrl);
-            }
+            // 關鍵修正：只保留 gclid 參數，避免網址過長
+            const cleanParams = gclid ? `?gclid=${encodeURIComponent(gclid)}` : '';
+            const targetUrl = isMobile 
+                ? `https://liff.line.me/${LIFF_ID}${cleanParams}` 
+                : `https://line.me/R/ti/p/${LINE_OA_ID}${cleanParams}`;
+
+            // 3. 執行跳轉
+            sessionStorage.setItem('redirected', 'true');
+            window.location.replace(targetUrl);
+
+            // 針對無痕模式/攔截：3秒後出按鈕
+            setTimeout(showButton, 3000);
         }
 
         function showButton() {
             document.getElementById('msg').style.display = 'none';
             const btn = document.getElementById('retryBtn');
+            const cleanParams = gclid ? `?gclid=${encodeURIComponent(gclid)}` : '';
             btn.href = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent)
-                ? `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}`
-                : `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                ? `https://liff.line.me/${LIFF_ID}${cleanParams}`
+                : `https://line.me/R/ti/p/${LINE_OA_ID}${cleanParams}`;
             btn.style.display = 'block';
         }
 
