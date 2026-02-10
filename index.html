@@ -3,27 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟預約系統...</title>
+    <title>正在同步預約資訊...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
         .container { text-align: center; padding: 0 20px; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: bold; }
+        p { color: #555; font-size: 16px; font-weight: bold; line-height: 1.6; }
+        .pc-hint { display: none; margin-top: 20px; color: #00b900; text-decoration: none; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
         <div id="loader" class="loader"></div>
-        <p>正在同步預約資訊，請稍候...</p>
+        <p id="status-text">正在同步預約資訊，請稍候...</p>
+        <a id="pc-link" href="#" class="pc-hint">若頁面未自動跳轉，請點此加入 LINE</a>
     </div>
 
     <script>
         const CONFIG = {
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
-            LINE_OA_ID: "@138lkhjv"
+            LINE_OA_ID: "@138lkhjv",
+            HOME_URL: "https://www.sweep-j.com/"
         };
 
         function send(data) {
@@ -41,45 +44,60 @@
             const gclid = params.get('gclid') || "";
             const ua = navigator.userAgent.toLowerCase();
             const isLine = ua.indexOf('line') > -1;
+            const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
             let payload = {
                 gclid: gclid,
-                source: isLine ? "Inside_Line" : "External_Browser",
+                source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
                 timestamp: new Date().toISOString(),
                 lineUserId: "",
                 lineName: ""
             };
 
+            // 1. 如果在 LINE 裡面 (手機端)
             if (isLine) {
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
-                    
-                    // 如果沒登入，強制執行登入流程
                     if (!liff.isLoggedIn()) {
                         liff.login({ redirectUri: window.location.href });
-                        return; // 停止執行，等待登入跳回
+                        return;
                     }
-
-                    // 登入成功後抓取資料
                     const profile = await liff.getProfile();
                     payload.lineUserId = profile.userId;
                     payload.lineName = profile.displayName;
                     payload.source = "Mobile_Success_UID";
-                    
-                } catch (e) { console.error("LIFF Error", e); }
+                } catch (e) { console.warn("LIFF error", e); }
                 
                 send(payload);
-                // 稍微延遲給數據傳送時間
                 setTimeout(() => {
                     window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
                 }, 500);
-            } else {
-                // 外部瀏覽器：先送第一筆基本資料
-                send(payload);
-                setTimeout(() => {
-                    window.location.replace(`https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`);
-                }, 800);
+                return;
             }
+
+            // 2. 如果是電腦版 (PC)
+            if (!isMobile) {
+                document.getElementById('status-text').innerText = "正在為您開啟 LINE 官方帳號...";
+                send(payload);
+                
+                const pcTarget = `https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`;
+                document.getElementById('pc-link').href = pcTarget;
+                document.getElementById('pc-link').style.display = "block";
+
+                // 電腦版不使用 replace，因為會擋住 LINE 的開啟詢問視窗
+                setTimeout(() => {
+                    window.location.href = pcTarget;
+                    // 3秒後如果還在原網頁，自動導向官網，避免白屏
+                    setTimeout(() => { window.location.replace(CONFIG.HOME_URL + "?gclid=" + gclid); }, 3000);
+                }, 1000);
+                return;
+            }
+
+            // 3. 如果是手機外部瀏覽器 (Safari/Chrome)
+            send(payload);
+            setTimeout(() => {
+                window.location.replace(`https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`);
+            }, 800);
         }
 
         main();
