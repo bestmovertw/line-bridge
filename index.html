@@ -3,96 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟預約系統...</title>
+    <title>正在同步預約資訊...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
         .container { text-align: center; padding: 0 20px; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
+        p { color: #555; font-size: 16px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
         <div id="loader" class="loader"></div>
-        <p id="status-text">正在為您開啟預約對話，請稍候...</p>
+        <p>同步資訊中，請稍候...</p>
     </div>
 
     <script>
-        const LIFF_ID = "2009064962-w2XqDG82"; 
-        const N8N_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-        const LINE_OA_ID = "@138lkhjv"; 
-        const HOME_URL = "https://www.sweep-j.com/";
+        const CONFIG = {
+            LIFF_ID: "2009064962-w2XqDG82",
+            N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
+            LINE_OA_ID: "@138lkhjv"
+        };
 
-        async function sendToN8n(data) {
-            try {
-                // 使用 no-cors 模式以獲得最快的跳轉速度，同時確保數據送出
-                await fetch(N8N_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                    mode: 'no-cors',
-                    keepalive: true
-                });
-            } catch (e) { console.error("Data send failed", e); }
+        // 確保以正確的 JSON 格式發送
+        function send(data) {
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(CONFIG.N8N_URL, blob);
+            } else {
+                fetch(CONFIG.N8N_URL, { method: 'POST', body: blob, keepalive: true });
+            }
         }
 
         async function main() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const gclid = urlParams.get('gclid') || "";
-            const ua = navigator.userAgent || navigator.vendor || window.opera;
-            const isLineBrowser = /Line/i.test(ua);
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+            const params = new URLSearchParams(window.location.search);
+            const gclid = params.get('gclid') || "";
+            const ua = navigator.userAgent.toLowerCase();
+            const isLine = ua.indexOf('line') > -1;
+            const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
-            // --- 1. 初始資料發送 (使用原始欄位名稱: ts) ---
-            const sourceTag = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
-            const initialData = { 
-                gclid: gclid, 
-                source: sourceTag, 
-                ts: Date.now() 
+            // 1. 基本資料
+            let payload = {
+                gclid: gclid,
+                source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
+                ts: Date.now(),
+                lineUserId: "",
+                lineName: ""
             };
-            
-            // 執行發送但不阻塞
-            sendToN8n(initialData);
 
-            // --- 2. 環境分流與跳轉 ---
-
-            // A. 如果在 LINE 內部瀏覽器
-            if (isLineBrowser) {
+            // 2. LINE 環境額外抓取 UID
+            if (isLine) {
                 try {
-                    await liff.init({ liffId: LIFF_ID });
+                    await liff.init({ liffId: CONFIG.LIFF_ID });
                     if (liff.isLoggedIn()) {
                         const profile = await liff.getProfile();
-                        // 補傳成功資料 (使用原始欄位: lineUserId, lineName, ts)
-                        sendToN8n({
-                            lineUserId: profile.userId,
-                            lineName: profile.displayName,
-                            gclid: gclid,
-                            source: 'Mobile_Success_UID',
-                            ts: Date.now()
-                        });
+                        payload.lineUserId = profile.userId;
+                        payload.lineName = profile.displayName;
+                        payload.source = "Mobile_Success_UID";
                     }
-                } catch (err) { console.warn("LIFF error", err); }
+                } catch (e) { console.warn("LIFF Error", e); }
                 
-                // 為了確保 sendToN8n 有時間發出，延遲 300ms 跳轉
+                send(payload);
+                window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
+            } else {
+                send(payload);
+                // 外部環境延遲跳轉，確保資料送出
                 setTimeout(() => {
-                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                }, 300);
-                return;
+                    const target = isMobile 
+                        ? "https://liff.line.me/" + CONFIG.LIFF_ID + "?gclid=" + gclid
+                        : "https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID + "?gclid=" + gclid;
+                    window.location.replace(target);
+                }, 800);
             }
-
-            // B. 電腦版
-            if (!isMobile) {
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid}`);
-                return;
-            }
-
-            // C. 手機外部瀏覽器 (Safari/Chrome)
-            // 延遲一點點確保 fetch 請求已發出
-            setTimeout(() => {
-                window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid}`);
-            }, 500);
         }
 
         main();
