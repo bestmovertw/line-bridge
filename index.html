@@ -7,32 +7,66 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
-        .container { text-align: center; }
+        .container { text-align: center; padding: 0 20px; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: 500; }
+        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
+        .warning { color: #d93025; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="loader"></div>
-        <p>正在為您開啟預約對話，請稍候...</p>
+        <div id="loader" class="loader"></div>
+        <p id="status-text">正在為您開啟預約對話，請稍候...</p>
     </div>
 
     <script>
         const LIFF_ID = "2009064962-w2XqDG82"; 
         const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
         const LINE_OA_ID = "@138lkhjv"; 
+        const SEARCH_ID = "@319tksuv"; // 警語中使用的搜尋 ID
+        const HOME_URL = "https://www.sweep-j.com/";
 
         async function main() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const gclid = urlParams.get('gclid');
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const statusText = document.getElementById('status-text');
+            const loader = document.getElementById('loader');
+
+            // --- 1. 私密模式檢測 ---
+            let isPrivate = false;
+            try {
+                sessionStorage.setItem('test', '1');
+                sessionStorage.removeItem('test');
+            } catch (e) {
+                isPrivate = true;
+            }
+
+            if (isPrivate) {
+                loader.style.display = 'none';
+                statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
+                setTimeout(() => { window.location.replace(HOME_URL); }, 4000);
+                return;
+            }
+
+            // --- 2. 桌面版分流 (不啟動 LIFF) ---
+            if (!isMobile) {
+                if (gclid) sendToN8n(gclid, 'PC_Bridge_Redirect');
+                setTimeout(() => {
+                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
+                }, 800);
+                return;
+            }
+
+            // --- 3. 手機版 LIFF 流程 ---
             try {
                 await liff.init({ liffId: LIFF_ID });
 
-                // 處理 Chrome/Safari 需手動登入的問題
                 if (!liff.isLoggedIn()) {
                     if (!liff.isInClient()) {
-                        // 強制喚起手機內的 LINE App
-                        window.location.href = `https://liff.line.me/${LIFF_ID}${window.location.search}`;
+                        // 外部瀏覽器喚起 App
+                        window.location.replace(`https://liff.line.me/${LIFF_ID}${window.location.search}`);
                         return;
                     } else {
                         liff.login();
@@ -41,34 +75,39 @@
                 }
 
                 const profile = await liff.getProfile();
-                const urlParams = new URLSearchParams(window.location.search);
-                const gclid = urlParams.get('gclid');
-
                 if (gclid) {
-                    // 發送數據到 n8n (保留原本的所有設定)
-                    await fetch(N8N_WEBHOOK_URL, {
-                        method: 'POST',
-                        mode: 'cors', 
-                        headers: { 'Content-Type': 'application/json' },
-                        keepalive: true, 
-                        body: JSON.stringify({
-                            lineUserId: profile.userId,
-                            lineName: profile.displayName,
-                            gclid: gclid,
-                            source: 'Wix_to_GitHub_Bridge',
-                            timestamp: new Date().getTime()
-                        })
-                    }).catch(err => console.error("Webhook Send Error:", err));
+                    await sendToN8n(gclid, 'Mobile_LIFF_Bridge', profile);
                 }
 
-                // 最後導向 LINE 官方帳號聊天室
                 setTimeout(() => {
-                    window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
                 }, 500);
 
             } catch (err) {
-                console.error("LIFF Main Process Error:", err);
-                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                console.error("LIFF Error:", err);
+                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
+            }
+        }
+
+        async function sendToN8n(gclid, source, profile = null) {
+            const data = {
+                lineUserId: profile ? profile.userId : 'PC_USER',
+                lineName: profile ? profile.displayName : 'PC_USER',
+                gclid: gclid,
+                source: source,
+                timestamp: new Date().getTime()
+            };
+
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(N8N_WEBHOOK_URL, JSON.stringify(data));
+            } else {
+                fetch(N8N_WEBHOOK_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    keepalive: true,
+                    body: JSON.stringify(data)
+                }).catch(() => {});
             }
         }
 
