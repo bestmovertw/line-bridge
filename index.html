@@ -5,19 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>正在開啟 LINE...</title>
     <style>
-        body { font-family: -apple-system, "Helvetica Neue", sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #ffffff; color: #333; }
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; }
         
-        /* 轉圈動畫樣式 */
-        .loader { border: 5px solid #f3f3f3; border-top: 5px solid #00b900; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        /* 綠色轉圈動畫 */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        #message { font-size: 16px; text-align: center; padding: 0 20px; line-height: 1.6; }
+        #message { font-size: 16px; text-align: center; color: #333; line-height: 1.5; padding: 0 20px; }
         .warning { color: #d93025; font-weight: bold; }
     </style>
 </head>
 <body>
     <div id="loader" class="loader"></div>
-    <div id="message">正在為您連接預約系統，請稍候...</div>
+    <div id="message">正在連接預約系統...</div>
 
     <script>
         const LIFF_URL = "https://liff.line.me/2009064962-w2XqDG82"; 
@@ -32,12 +32,11 @@
             const msgEl = document.getElementById('message');
             const loaderEl = document.getElementById('loader');
 
-            // --- 1. 私密模式檢測 ---
+            // --- 1. 私密模式檢測 (核心攔截) ---
             let isPrivate = false;
             try {
-                // 嘗試寫入 localStorage，私密模式通常會拒絕或限制
-                localStorage.setItem('test', '1');
-                localStorage.removeItem('test');
+                localStorage.setItem('private_test', '1');
+                localStorage.removeItem('private_test');
             } catch (e) {
                 isPrivate = true;
             }
@@ -45,35 +44,40 @@
             if (isPrivate) {
                 loaderEl.style.display = 'none';
                 msgEl.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽或無痕瀏覽</span><br>正在為您跳轉回首頁...`;
-                setTimeout(() => {
-                    window.location.replace(HOME_URL);
-                }, 3000);
+                setTimeout(() => { window.location.replace(HOME_URL); }, 2500);
                 return;
             }
 
-            // --- 2. 正常模式：發送 GCLID ---
+            // --- 2. 防止無限跳轉 (解決 URI Too Long 的關鍵) ---
+            // 使用 sessionStorage 作為一次性鎖頭，若已跳轉過就不再自動跳轉
+            if (sessionStorage.getItem('redirected')) {
+                loaderEl.style.display = 'none';
+                msgEl.innerHTML = `若頁面未自動跳轉，請檢查 LINE 設定。<br><br><a href="${HOME_URL}" style="color:#00b900;">回到首頁</a>`;
+                return;
+            }
+
+            // --- 3. 發送 GCLID ---
             if (gclid) {
-                const payload = JSON.stringify({ gclid: gclid, source: isMobile ? 'Mobile_Auto' : 'PC_Auto' });
+                const data = JSON.stringify({ gclid: gclid, source: isMobile ? 'Mobile_Auto' : 'PC_Auto' });
                 if (navigator.sendBeacon) {
-                    navigator.sendBeacon(N8N_WEBHOOK, payload);
+                    navigator.sendBeacon(N8N_WEBHOOK, data);
                 } else {
-                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: payload, keepalive: true });
+                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
                 }
             }
 
-            // --- 3. 執行跳轉 ---
+            // --- 4. 執行自動跳轉 ---
+            sessionStorage.setItem('redirected', 'true'); // 上鎖
+            const target = isMobile ? LIFF_URL : LINE_QR_URL;
+            const finalUrl = gclid ? `${target}?gclid=${encodeURIComponent(gclid)}` : target;
+
             setTimeout(() => {
-                if (isMobile) {
-                    // 手機版：自動跳轉至 LIFF
-                    window.location.replace(`${LIFF_URL}?gclid=${gclid || ''}`);
-                } else {
-                    // 電腦版：跳轉至 QR Code 頁面
-                    window.location.replace(`${LINE_QR_URL}?gclid=${gclid || ''}`);
-                }
-            }, 800); // 稍微延遲 0.8 秒讓使用者看到動畫，也確保 fetch 發出
+                window.location.replace(finalUrl);
+            }, 800); // 留 0.8 秒給轉圈動畫與資料發送
         }
 
         main();
     </script>
 </body>
 </html>
+
