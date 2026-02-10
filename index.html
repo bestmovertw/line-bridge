@@ -1,189 +1,85 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>正在開啟 LINE...</title>
-  <style>
-    body{
-      font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
-      display:flex; flex-direction:column; justify-content:center; align-items:center;
-      height:100vh; margin:0; background:#fff;
-    }
-    .loader{
-      border:4px solid #f3f3f3;
-      border-top:4px solid #00b900;
-      border-radius:50%;
-      width:40px; height:40px;
-      animation:spin 1s linear infinite;
-      margin-bottom:18px;
-    }
-    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-    #message{font-size:16px; text-align:center; color:#333; line-height:1.6; padding:0 20px;}
-    .warning{color:#d93025; font-weight:700;}
-    a{color:#00b900; text-decoration:none; font-weight:600;}
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正在開啟 LINE...</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; color: #333; }
+        
+        /* 綠色轉圈動畫 */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #message { font-size: 16px; text-align: center; line-height: 1.6; padding: 0 20px; }
+        .warning { color: #d93025; font-weight: bold; }
+        .btn { display: none; margin-top: 20px; padding: 12px 30px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; }
+    </style>
 </head>
 <body>
-  <div id="loader" class="loader"></div>
-  <div id="message">正在連接預約系統...</div>
+    <div id="loader" class="loader"></div>
+    <div id="message">正在為您開啟預約系統...</div>
+    <a id="retryBtn" href="https://www.sweep-j.com/" class="btn">返回首頁</a>
 
-  <script>
-    // ====== 你的設定 ======
-    const LIFF_URL   = "https://liff.line.me/2009064962-w2XqDG82";
-    const LINE_QR_URL = "https://line.me/R/ti/p/@138lkhjv";
-    const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-    const HOME_URL    = "https://www.sweep-j.com/";
+    <script>
+        const LIFF_URL = "https://liff.line.me/2009064962-w2XqDG82"; 
+        const LINE_QR_URL = "https://line.me/R/ti/p/@138lkhjv"; 
+        const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
+        const HOME_URL = "https://www.sweep-j.com/";
 
-    // 轉圈多久後跳轉（ms）
-    const REDIRECT_DELAY_MS = 900;
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const gclid = params.get('gclid');
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const msgEl = document.getElementById('message');
+            const loaderEl = document.getElementById('loader');
+            const btnEl = document.getElementById('retryBtn');
 
-    // ====== 工具函式 ======
-    const qs = new URLSearchParams(location.search);
+            // 1. 私密模式檢測 (核心攔截)
+            let isPrivate = false;
+            try {
+                sessionStorage.setItem('test', '1');
+                sessionStorage.removeItem('test');
+            } catch (e) {
+                isPrivate = true;
+            }
 
-    function isMobileUA(){
-      return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    }
+            if (isPrivate) {
+                loaderEl.style.display = 'none';
+                msgEl.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽或無痕瀏覽</span><br>正在跳轉回首頁...`;
+                setTimeout(() => { window.location.replace(HOME_URL); }, 2500);
+                return;
+            }
 
-    function pickClickId(){
-      // 你目前寫 gclid；我建議順便收 gbraid / wbraid（iOS/部分情境會出現）
-      return {
-        gclid: qs.get("gclid") || "",
-        gbraid: qs.get("gbraid") || "",
-        wbraid: qs.get("wbraid") || ""
-      };
-    }
+            // 2. 防迴圈防火牆 (防止 URI Too Long)
+            if (sessionStorage.getItem('redirected')) {
+                loaderEl.style.display = 'none';
+                msgEl.innerHTML = '若未自動跳轉，請檢查 LINE 設定或返回官網。';
+                btnEl.style.display = 'inline-block';
+                return;
+            }
 
-    function appendParams(url, paramsObj){
-      const u = new URL(url, location.origin);
-      Object.entries(paramsObj).forEach(([k,v])=>{
-        if (v) u.searchParams.set(k, v);
-      });
-      return u.toString();
-    }
+            // 3. 發送 GCLID (保證數據傳輸)
+            if (gclid) {
+                const data = JSON.stringify({ gclid: gclid, source: isMobile ? 'Mobile_Auto' : 'PC_Auto' });
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(N8N_WEBHOOK, data);
+                } else {
+                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                }
+            }
 
-    async function detectPrivateMode(){
-      // 目標：不要誤判正常模式；私密/無痕抓到就回首頁
-      // 1) 先用 Storage API 快速檢測（能用就用）
-      try{
-        if (navigator.storage && navigator.storage.estimate){
-          const est = await navigator.storage.estimate();
-          // 某些瀏覽器私密模式配額很小，但這不是 100%可靠，所以只做輔助
-        }
-      }catch(e){}
+            // 4. 執行跳轉
+            sessionStorage.setItem('redirected', 'true');
+            const targetBase = isMobile ? LIFF_URL : LINE_QR_URL;
+            const finalTarget = gclid ? `${targetBase}?gclid=${encodeURIComponent(gclid)}` : targetBase;
 
-      // 2) IndexedDB 在 Safari 私密常會直接丟錯（這招對 iOS 特別有用）
-      const idbTest = () => new Promise((resolve) => {
-        try{
-          const req = indexedDB.open("pj_test_db", 1);
-          req.onerror = () => resolve(true);   // 很多私密模式會走這裡
-          req.onsuccess = () => {
-            try{ req.result.close(); indexedDB.deleteDatabase("pj_test_db"); }catch(e){}
-            resolve(false);
-          };
-          req.onupgradeneeded = () => {};
-        }catch(e){
-          resolve(true);
-        }
-      });
-
-      // 3) sessionStorage 寫入測試（你原本的邏輯保留）
-      const ssTest = () => {
-        try{
-          sessionStorage.setItem("priv_test","1");
-          sessionStorage.removeItem("priv_test");
-          return false;
-        }catch(e){
-          return true;
-        }
-      };
-
-      const idbPrivate = await idbTest();
-      const ssPrivate  = ssTest();
-
-      // 只要任一判定為 private，就當 private（寧願保守）
-      return idbPrivate || ssPrivate;
-    }
-
-    function sendClickIdToN8n(payloadObj){
-      // payloadObj: {gclid, gbraid, wbraid, source, ua, ts}
-      const body = JSON.stringify(payloadObj);
-
-      // 主要：sendBeacon（跳轉也能送）
-      let beaconOk = false;
-      try{
-        if (navigator.sendBeacon){
-          beaconOk = navigator.sendBeacon(N8N_WEBHOOK, body);
-        }
-      }catch(e){}
-
-      // 後備：fetch keepalive
-      // 注意：no-cors 下你拿不到回應，但請求通常會送出去
-      try{
-        fetch(N8N_WEBHOOK, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "application/json" },
-          body,
-          keepalive: true
-        });
-      }catch(e){}
-
-      return beaconOk;
-    }
-
-    async function main(){
-      const msgEl = document.getElementById("message");
-      const loaderEl = document.getElementById("loader");
-      const isMobile = isMobileUA();
-      const clickId = pickClickId();
-
-      // --- 私密/無痕：顯示警語 + 回首頁 ---
-      const isPrivate = await detectPrivateMode();
-      if (isPrivate){
-        loaderEl.style.display = "none";
-        msgEl.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽或無痕瀏覽</span><br>正在為您跳轉回首頁...`;
-        setTimeout(()=> location.replace(HOME_URL), 2500);
-        return;
-      }
-
-      // --- 防迴圈：避免被擋後不斷重導 ---
-      if (sessionStorage.getItem("redirected") === "true"){
-        loaderEl.style.display = "none";
-        msgEl.innerHTML =
-          `若未自動跳轉，請點擊下方：<br><br>
-           <a href="${isMobile ? LIFF_URL : LINE_QR_URL}">手動開啟 LINE</a><br><br>
-           或 <a href="${HOME_URL}">返回首頁</a>`;
-        return;
-      }
-
-      // --- 先送 click id（你要求：GCLID 務必要成功）---
-      const hasAnyClickId = !!(clickId.gclid || clickId.gbraid || clickId.wbraid);
-      if (hasAnyClickId){
-        sendClickIdToN8n({
-          ...clickId,
-          source: isMobile ? "Mobile_Auto" : "PC_Auto",
-          ua: navigator.userAgent,
-          ts: Date.now(),
-          landing: location.href
-        });
-      }
-
-      // --- 跳轉目標（手機 LIFF / 電腦 QR）---
-      const targetBase = isMobile ? LIFF_URL : LINE_QR_URL;
-
-      // ⚠️ 建議：LINE 端不一定吃得到 gclid，但你要「帶過去」我就附上；
-      // 若你擔心 LINE URL 加參數會怪，就把下面 finalTarget 改成 targetBase 即可
-      const finalTarget = appendParams(targetBase, clickId);
-
-      // 標記已跳過（防迴圈）
-      sessionStorage.setItem("redirected","true");
-
-      // --- 轉圈一下再跳 ---
-      setTimeout(()=> location.replace(finalTarget), REDIRECT_DELAY_MS);
-    }
-
-    main();
-  </script>
+            setTimeout(() => {
+                // 使用 replace 絕對不留下歷史紀錄，防止 URI Too Long
+                window.location.replace(finalTarget);
+            }, 1000); // 1秒轉圈動畫
+        })();
+    </script>
 </body>
 </html>
+
