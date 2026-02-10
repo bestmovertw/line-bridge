@@ -25,50 +25,53 @@
         const N8N_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
         const LINE_OA_ID = "@138lkhjv"; 
         const SEARCH_ID = "@319tksuv";
-        const HOME_URL = "https://www.sweep-j.com/";
 
         async function main() {
             const urlParams = new URLSearchParams(window.location.search);
             const gclid = urlParams.get('gclid');
             const ua = navigator.userAgent || navigator.vendor || window.opera;
-            const isLineBrowser = /Line/i.test(ua); // 檢查是否已經在 LINE 內部
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
             
+            // 關鍵判斷：是否在 LINE 內建瀏覽器中
+            const isLineBrowser = /Line/i.test(ua); 
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
             const statusText = document.getElementById('status-text');
             const loader = document.getElementById('loader');
 
-            // --- 1. 私密模式檢測 ---
+            // --- 1. 私密模式攔截 (立即停止所有邏輯) ---
             try {
-                sessionStorage.setItem('test', '1');
+                sessionStorage.setItem('p_test', '1');
             } catch (e) {
                 loader.style.display = 'none';
                 statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
-                setTimeout(() => { window.location.replace(HOME_URL); }, 4000);
-                return;
+                return; // 終止腳本，不再跳轉
             }
 
-            // --- 2. 數據優先噴射 (確保 GCLID 成功) ---
+            // --- 2. 數據優先噴射 (GCLID 務必成功) ---
             if (gclid) {
-                const data = JSON.stringify({ gclid, source: isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry') });
+                const sourceTag = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
+                const data = JSON.stringify({ gclid, source: sourceTag, ts: Date.now() });
                 const blob = new Blob([data], { type: 'application/json' });
-                if (navigator.sendBeacon) navigator.sendBeacon(N8N_URL, blob);
-                else fetch(N8N_URL, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(N8N_URL, blob);
+                } else {
+                    fetch(N8N_URL, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                }
             }
 
-            // --- 3. 環境判斷跳轉 (防止無限迴圈的核心) ---
+            // --- 3. 環境分流跳轉 (切斷迴圈的核心) ---
 
-            // A. 如果已經在 LINE 裡面了：執行 LIFF 邏輯抓 UID，然後去聊天室
+            // A. 如果已經在 LINE 裡面了：停止自動重定向，執行 LIFF 邏輯後去加好友
             if (isLineBrowser) {
                 try {
                     await liff.init({ liffId: LIFF_ID });
                     if (liff.isLoggedIn()) {
                         const profile = await liff.getProfile();
-                        const uidData = JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Success_UID' });
+                        const uidData = JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Success_UID' });
                         navigator.sendBeacon(N8N_URL, new Blob([uidData], { type: 'application/json' }));
                     }
                 } catch (err) { console.error(err); }
                 
-                // 直接去聊天室，不要再跳轉 liff.line.me
+                // 已經在 LINE 內，直接去 OA 連結，不再去 liff.line.me (避免跳針)
                 window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
                 return;
             }
@@ -81,11 +84,11 @@
                 return;
             }
 
-            // C. 如果在手機外部瀏覽器 (Safari/Chrome)：自動喚起 LINE
-            // 使用 replace 確保不會產生多餘的歷史紀錄，防止 URI Too Long
+            // C. 如果在手機外部瀏覽器 (Safari/Chrome)：發起第一次自動跳轉
             setTimeout(() => {
+                // 使用 replace 確保不堆疊紀錄，解決 URI Too Long
                 window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`);
-            }, 800);
+            }, 1000);
         }
 
         main();
