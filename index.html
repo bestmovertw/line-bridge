@@ -22,58 +22,54 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const gclid = urlParams.get('gclid');
-        const isRedirected = urlParams.get('step') === '2';
+        const isStep2 = urlParams.get('step') === '2';
 
         async function main() {
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             const btn = document.getElementById('retryBtn');
             const loading = document.getElementById('loading');
 
-            // 1. 電腦版處理：維持快速自動跳轉
-            if (!isMobile) {
-                if (!isRedirected) {
-                    if (gclid) fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'PC_Auto' }), keepalive: true });
-                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid}&step=2`);
-                } else {
-                    // 已跳轉過但還留在這頁，才顯按鈕
-                    loading.style.display = 'none';
-                    btn.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
-                    btn.style.display = 'block';
+            // --- 核心改動：手機版優先嘗試暴力跳轉 ---
+            if (isMobile && !isStep2) {
+                // 1. 先背景發送數據到 n8n (不 await，不讓它卡住)
+                if (gclid) {
+                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'Mobile_Auto_Fast' }), keepalive: true });
                 }
+                // 2. 立即嘗試喚起 LINE (使用 Universal Link)
+                window.location.href = `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2`;
+                
+                // 3. 設定 2.5 秒後如果還沒走，再顯按鈕
+                setTimeout(() => {
+                    loading.style.display = 'none';
+                    btn.href = `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2`;
+                    btn.style.display = 'block';
+                }, 2500);
                 return;
             }
 
-            // 2. 手機版處理：自動喚醒優先
+            // --- A. 電腦版或已在 step 2 的邏輯 ---
+            if (!isMobile) {
+                if (gclid) fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'PC_Auto' }), keepalive: true });
+                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid}&step=2`);
+                return;
+            }
+
+            // --- B. 處理 LIFF 內部邏輯 (抓取 UID) ---
             try {
                 await liff.init({ liffId: LIFF_ID });
-                
-                if (!liff.isLoggedIn()) {
-                    if (!liff.isInClient()) {
-                        // 如果沒跳轉過，全力嘗試自動喚醒
-                        if (!isRedirected) {
-                            window.location.replace(`https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2`);
-                        }
-                        // 3秒後沒跳走，才顯示手動按鈕
-                        setTimeout(() => {
-                            loading.style.display = 'none';
-                            btn.href = `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2`;
-                            btn.style.display = 'block';
-                        }, 3000);
-                    } else {
-                        liff.login();
-                    }
-                } else {
-        // 已登入狀態，直接傳資料並跳轉
+                if (liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     if (gclid) {
                         await fetch(N8N_WEBHOOK, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Auto' }),
+                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Success_UID' }),
                             keepalive: true
                         });
                     }
                     window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
+                } else {
+                    if (liff.isInClient()) liff.login();
                 }
             } catch (err) {
                 window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
