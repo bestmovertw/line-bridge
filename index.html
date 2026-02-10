@@ -1,78 +1,64 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟預約系統...</title>
-    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
-        .container { text-align: center; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: 500; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="loader"></div>
-        <p>正在為您開啟預約對話，請稍候...</p>
-    </div>
+<script>
+    const LIFF_ID = "2009064962-w2XqDG82"; 
+    const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
+    const LINE_OA_ID = "@138lkhjv"; 
 
-    <script>
-        const LIFF_ID = "2009064962-w2XqDG82"; 
-        const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-        const LINE_OA_ID = "@138lkhjv"; 
+    async function main() {
+        try {
+            await liff.init({ liffId: LIFF_ID });
 
-        async function main() {
-            try {
-                await liff.init({ liffId: LIFF_ID });
-
-                // 處理 Chrome/Safari 需手動登入的問題
-                if (!liff.isLoggedIn()) {
-                    if (!liff.isInClient()) {
-                        // 強制喚起手機內的 LINE App
-                        window.location.href = `https://liff.line.me/${LIFF_ID}${window.location.search}`;
-                        return;
-                    } else {
-                        liff.login();
-                        return;
-                    }
+            // --- 新增電腦版判斷邏輯 ---
+            if (!liff.isInClient() && liff.getOS() === "web") {
+                console.log("偵測到電腦版瀏覽器");
+                // 為了不讓電腦版使用者卡在登入頁，直接嘗試抓取 GCLID 並發送，然後導向 OA
+                const urlParams = new URLSearchParams(window.location.search);
+                const gclid = urlParams.get('gclid');
+                
+                if (gclid) {
+                    // 電腦版雖然拿不到 LINE UID，但我們先記錄這筆 GCLID 點擊
+                    await fetch(N8N_WEBHOOK_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            gclid: gclid,
+                            source: 'PC_Browser_Click',
+                            note: '使用者使用電腦開啟，未進行 LINE 授權'
+                        })
+                    }).catch(() => {});
                 }
+                
+                // 直接導向 LINE 官方帳號的加入好友頁面 (電腦版會顯示 QR Code)
+                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                return;
+            }
+            // --- 電腦版處理結束 ---
 
+            // 原本的手機版邏輯保留
+            if (!liff.isLoggedIn()) {
+                liff.login();
+            } else {
                 const profile = await liff.getProfile();
                 const urlParams = new URLSearchParams(window.location.search);
                 const gclid = urlParams.get('gclid');
 
                 if (gclid) {
-                    // 發送數據到 n8n (保留原本的所有設定)
                     await fetch(N8N_WEBHOOK_URL, {
                         method: 'POST',
-                        mode: 'cors', 
                         headers: { 'Content-Type': 'application/json' },
-                        keepalive: true, 
                         body: JSON.stringify({
                             lineUserId: profile.userId,
                             lineName: profile.displayName,
                             gclid: gclid,
-                            source: 'Wix_to_GitHub_Bridge',
-                            timestamp: new Date().getTime()
+                            source: 'Wix_to_GitHub_Bridge'
                         })
-                    }).catch(err => console.error("Webhook Send Error:", err));
+                    });
                 }
-
-                // 最後導向 LINE 官方帳號聊天室
-                setTimeout(() => {
-                    window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
-                }, 500);
-
-            } catch (err) {
-                console.error("LIFF Main Process Error:", err);
                 window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
             }
+        } catch (err) {
+            console.error(err);
+            window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
         }
-
-        main();
-    </script>
-</body>
-</html>
+    }
+    main();
+</script>
