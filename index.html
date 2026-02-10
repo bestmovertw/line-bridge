@@ -1,125 +1,103 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟預約系統...</title>
-    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    <style>
-        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
-        .container { text-align: center; padding: 0 20px; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
-        .warning { color: #d93025; font-weight: bold; display: block; margin-bottom: 15px; }
-        
-        /* 手動按鈕樣式 */
-        .btn { 
-            display: none; 
-            margin-top: 20px; 
-            padding: 12px 30px; 
-            background-color: #00b900; 
-            color: white; 
-            text-decoration: none; 
-            border-radius: 50px; 
-            font-weight: bold; 
-            font-size: 18px; 
-            box-shadow: 0 4px 12px rgba(0,185,0,0.3);
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正在開啟預約系統...</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
+        .container { text-align: center; padding: 0 20px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
+        .warning { color: #d93025; font-weight: bold; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <div id="loader" class="loader"></div>
-        <p id="status-text">正在為您開啟預約對話，請稍候...</p>
-        <a id="manual-btn" href="#" class="btn">點此手動開啟 LINE 預約</a>
-    </div>
+    <div class="container">
+        <div id="loader" class="loader"></div>
+        <p id="status-text">正在為您開啟預約對話，請稍候...</p>
+    </div>
 
-    <script>
-        const LIFF_ID = "2009064962-w2XqDG82"; 
-        const N8N_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-        const LINE_OA_ID = "@138lkhjv"; 
-        const SEARCH_ID = "@319tksuv";
+    <script>
+        const LIFF_ID = "2009064962-w2XqDG82"; 
+        const N8N_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
+        const LINE_OA_ID = "@138lkhjv"; 
+        const SEARCH_ID = "@319tksuv";
+        const HOME_URL = "https://www.sweep-j.com/";
 
-        async function main() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const gclid = urlParams.get('gclid');
-            const ua = navigator.userAgent || navigator.vendor || window.opera;
-            const isLineBrowser = /Line/i.test(ua);
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
-            
-            const statusText = document.getElementById('status-text');
-            const loader = document.getElementById('loader');
-            const manualBtn = document.getElementById('manual-btn');
+        async function main() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const gclid = urlParams.get('gclid');
+            const ua = navigator.userAgent || navigator.vendor || window.opera;
+            const isLineBrowser = /Line/i.test(ua);
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+            const statusText = document.getElementById('status-text');
+            const loader = document.getElementById('loader');
 
-            // 預先設定按鈕連結 (帶上 GCLID)
-            const fallbackUrl = isMobile 
-                ? `https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}` 
-                : `https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`;
-            manualBtn.href = fallbackUrl;
+            // --- 1. 私密模式檢測 ---
+            try {
+                sessionStorage.setItem('p_test', '1');
+            } catch (e) {
+                loader.style.display = 'none';
+                statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
+                return; 
+            }
 
-            // --- 1. 私密模式檢測 (立即攔截) ---
-            try {
-                sessionStorage.setItem('p_test', '1');
-                sessionStorage.removeItem('p_test');
-            } catch (e) {
-                // 偵測到無痕模式：停止轉圈，顯示警語與手動按鈕
-                loader.style.display = 'none';
-                statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
-                manualBtn.style.display = 'inline-block';
-                return; // 💥 關鍵：停止所有後續自動邏輯
-            }
+            // --- 2. 數據傳送 (使用 Await 確保傳送成功才繼續) ---
+            if (gclid) {
+                const sourceTag = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
+                const data = { gclid, source: sourceTag, ts: Date.now() };
+                
+                try {
+                    // 強制等待 n8n 回應，確保資料噴射出去
+                    await fetch(N8N_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data),
+                        mode: 'cors',
+                        keepalive: true
+                    });
+                    console.log("Data sent to n8n");
+                } catch (e) {
+                    console.error("Data send failed", e);
+                }
+            }
 
-            // --- 2. 數據傳送 (一般模式才執行) ---
-            if (gclid) {
-                const sourceTag = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
-                const data = { gclid, source: sourceTag, ts: Date.now() };
-                
-                try {
-                    await fetch(N8N_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data),
-                        mode: 'cors',
-                        keepalive: true
-                    });
-                } catch (e) {
-                    console.error("Data send failed", e);
-                }
-            }
+            // --- 3. 環境分流跳轉 (切斷循環) ---
 
-            // --- 3. 環境分流跳轉 ---
+            // A. 如果已經在 LINE 裡面了
+            if (isLineBrowser) {
+                try {
+                    await liff.init({ liffId: LIFF_ID });
+                    if (liff.isLoggedIn()) {
+                        const profile = await liff.getProfile();
+                        // 再補傳一次帶有 UID 的資料
+                        fetch(N8N_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Success_UID' }),
+                            mode: 'cors', keepalive: true
+                        });
+                    }
+                } catch (err) {}
+                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
+                return;
+            }
 
-            // A. 如果已經在 LINE 裡面了
-            if (isLineBrowser) {
-                try {
-                    await liff.init({ liffId: LIFF_ID });
-                    if (liff.isLoggedIn()) {
-                        const profile = await liff.getProfile();
-                        fetch(N8N_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Success_UID' }),
-                            mode: 'cors', keepalive: true
-                        });
-                    }
-                } catch (err) {}
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                return;
-            }
+            // B. 如果在電腦版
+            if (!isMobile) {
+                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
+                return;
+            }
 
-            // B. 電腦版 & 手機外部瀏覽器
-            // 為了防呆，2秒後也顯示按鈕
-            setTimeout(() => { manualBtn.style.display = 'inline-block'; }, 2000);
+            // C. 如果在手機外部瀏覽器 (Safari/Chrome)
+            // 這裡不使用 setTimeout，資料傳完立刻跳轉
+            window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`);
+        }
 
-            if (!isMobile) {
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
-            } else {
-                window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`);
-            }
-        }
-
-        main();
-    </script>
+        main();
+    </script>
 </body>
 </html>
