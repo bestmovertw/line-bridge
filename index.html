@@ -1,85 +1,78 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟 LINE...</title>
+    <title>正在開啟預約系統...</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; color: #333; }
-        
-        /* 綠色轉圈動畫 */
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
+        .container { text-align: center; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        #message { font-size: 16px; text-align: center; line-height: 1.6; padding: 0 20px; }
-        .warning { color: #d93025; font-weight: bold; }
-        .btn { display: none; margin-top: 20px; padding: 12px 30px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; }
+        p { color: #555; font-size: 16px; font-weight: 500; }
     </style>
 </head>
 <body>
-    <div id="loader" class="loader"></div>
-    <div id="message">正在為您開啟預約系統...</div>
-    <a id="retryBtn" href="https://www.sweep-j.com/" class="btn">返回首頁</a>
+    <div class="container">
+        <div class="loader"></div>
+        <p>正在為您開啟預約對話，請稍候...</p>
+    </div>
 
     <script>
-        const LIFF_URL = "https://liff.line.me/2009064962-w2XqDG82"; 
-        const LINE_QR_URL = "https://line.me/R/ti/p/@138lkhjv"; 
-        const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-        const HOME_URL = "https://www.sweep-j.com/";
+        const LIFF_ID = "2009064962-w2XqDG82"; 
+        const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
+        const LINE_OA_ID = "@138lkhjv"; 
 
-        (function() {
-            const params = new URLSearchParams(window.location.search);
-            const gclid = params.get('gclid');
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const msgEl = document.getElementById('message');
-            const loaderEl = document.getElementById('loader');
-            const btnEl = document.getElementById('retryBtn');
-
-            // 1. 私密模式檢測 (核心攔截)
-            let isPrivate = false;
+        async function main() {
             try {
-                sessionStorage.setItem('test', '1');
-                sessionStorage.removeItem('test');
-            } catch (e) {
-                isPrivate = true;
-            }
+                await liff.init({ liffId: LIFF_ID });
 
-            if (isPrivate) {
-                loaderEl.style.display = 'none';
-                msgEl.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽或無痕瀏覽</span><br>正在跳轉回首頁...`;
-                setTimeout(() => { window.location.replace(HOME_URL); }, 2500);
-                return;
-            }
-
-            // 2. 防迴圈防火牆 (防止 URI Too Long)
-            if (sessionStorage.getItem('redirected')) {
-                loaderEl.style.display = 'none';
-                msgEl.innerHTML = '若未自動跳轉，請檢查 LINE 設定或返回官網。';
-                btnEl.style.display = 'inline-block';
-                return;
-            }
-
-            // 3. 發送 GCLID (保證數據傳輸)
-            if (gclid) {
-                const data = JSON.stringify({ gclid: gclid, source: isMobile ? 'Mobile_Auto' : 'PC_Auto' });
-                if (navigator.sendBeacon) {
-                    navigator.sendBeacon(N8N_WEBHOOK, data);
-                } else {
-                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                // 處理 Chrome/Safari 需手動登入的問題
+                if (!liff.isLoggedIn()) {
+                    if (!liff.isInClient()) {
+                        // 強制喚起手機內的 LINE App
+                        window.location.href = `https://liff.line.me/${LIFF_ID}${window.location.search}`;
+                        return;
+                    } else {
+                        liff.login();
+                        return;
+                    }
                 }
+
+                const profile = await liff.getProfile();
+                const urlParams = new URLSearchParams(window.location.search);
+                const gclid = urlParams.get('gclid');
+
+                if (gclid) {
+                    // 發送數據到 n8n (保留原本的所有設定)
+                    await fetch(N8N_WEBHOOK_URL, {
+                        method: 'POST',
+                        mode: 'cors', 
+                        headers: { 'Content-Type': 'application/json' },
+                        keepalive: true, 
+                        body: JSON.stringify({
+                            lineUserId: profile.userId,
+                            lineName: profile.displayName,
+                            gclid: gclid,
+                            source: 'Wix_to_GitHub_Bridge',
+                            timestamp: new Date().getTime()
+                        })
+                    }).catch(err => console.error("Webhook Send Error:", err));
+                }
+
+                // 最後導向 LINE 官方帳號聊天室
+                setTimeout(() => {
+                    window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                }, 500);
+
+            } catch (err) {
+                console.error("LIFF Main Process Error:", err);
+                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
             }
+        }
 
-            // 4. 執行跳轉
-            sessionStorage.setItem('redirected', 'true');
-            const targetBase = isMobile ? LIFF_URL : LINE_QR_URL;
-            const finalTarget = gclid ? `${targetBase}?gclid=${encodeURIComponent(gclid)}` : targetBase;
-
-            setTimeout(() => {
-                // 使用 replace 絕對不留下歷史紀錄，防止 URI Too Long
-                window.location.replace(finalTarget);
-            }, 1000); // 1秒轉圈動畫
-        })();
+        main();
     </script>
 </body>
 </html>
-
