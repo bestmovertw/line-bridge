@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在同步預約資訊...</title>
+    <title>正在同步資訊...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
@@ -26,14 +26,9 @@
             LINE_OA_ID: "@138lkhjv"
         };
 
-        // --- 使用 URLSearchParams (Form Data) 確保 n8n 能自動解析欄位 ---
         function send(data) {
             const formData = new URLSearchParams();
-            for (const key in data) { 
-                formData.append(key, data[key]); 
-            }
-
-            // 使用 sendBeacon 確保即使頁面關閉也能送達
+            for (const key in data) { formData.append(key, data[key]); }
             if (navigator.sendBeacon) {
                 navigator.sendBeacon(CONFIG.N8N_URL, formData);
             } else {
@@ -46,14 +41,13 @@
             const gclid = params.get('gclid') || "";
             const ua = navigator.userAgent.toLowerCase();
             const isLine = ua.indexOf('line') > -1;
-            const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
             let payload = {
                 gclid: gclid,
-                source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
+                source: isLine ? "Inside_Line" : "External_Browser",
                 timestamp: new Date().toISOString(),
                 lineUserId: "",
-                lineName: ""
+                lineName: "" // 這裡預留抓取名稱
             };
 
             if (isLine) {
@@ -62,27 +56,20 @@
                     if (liff.isLoggedIn()) {
                         const profile = await liff.getProfile();
                         payload.lineUserId = profile.userId;
-                        payload.lineName = profile.displayName;
+                        payload.lineName = profile.displayName; // 👈 抓取 LINE 名稱
                         payload.source = "Mobile_Success_UID";
                     }
-                } catch (e) { console.warn("LIFF error", e); }
+                } catch (e) { console.error("LIFF Error", e); }
                 
                 send(payload);
                 window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
-                return;
+            } else {
+                send(payload);
+                setTimeout(() => {
+                    window.location.replace(`https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`);
+                }, 800);
             }
-
-            // 外部環境處理
-            send(payload);
-            
-            setTimeout(() => {
-                const target = isMobile 
-                    ? `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`
-                    : `https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`;
-                window.location.replace(target);
-            }, 800);
         }
-
         main();
     </script>
 </body>
