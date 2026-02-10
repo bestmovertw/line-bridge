@@ -20,58 +20,56 @@
         const LINE_OA_ID = "@138lkhjv"; 
         const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const gclid = urlParams.get('gclid');
+        const isRedirected = urlParams.get('step') === '2';
+
         async function main() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const gclid = urlParams.get('gclid');
-            const step = urlParams.get('step'); // 檢查是否有跳轉標記
-
-            // 【終極防跳針】如果網址已有 step=2，代表已經嘗試過跳轉，直接停止並顯示按鈕
-            if (step === '2') {
-                document.getElementById('loading').style.display = 'none';
-                const btn = document.getElementById('retryBtn');
-                btn.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
-                btn.style.display = 'block';
-                return;
-            }
-
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            const redirectUrl = isMobile 
-                ? `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2` 
-                : `https://line.me/R/ti/p/${LINE_OA_ID}?step=2`;
+            const btn = document.getElementById('retryBtn');
+            const loading = document.getElementById('loading');
 
-            // 1. 電腦版處理
+            // 1. 電腦版處理：維持快速自動跳轉
             if (!isMobile) {
-                if (gclid) {
-                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'PC_Direct' }), keepalive: true });
+                if (!isRedirected) {
+                    if (gclid) fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'PC_Auto' }), keepalive: true });
+                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid}&step=2`);
+                } else {
+                    // 已跳轉過但還留在這頁，才顯按鈕
+                    loading.style.display = 'none';
+                    btn.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                    btn.style.display = 'block';
                 }
-                setTimeout(() => { window.location.replace(redirectUrl); }, 600);
                 return;
             }
 
-            // 2. 手機版處理
+            // 2. 手機版處理：自動喚醒優先
             try {
                 await liff.init({ liffId: LIFF_ID });
+                
                 if (!liff.isLoggedIn()) {
                     if (!liff.isInClient()) {
-                        // 嘗試跳轉並帶上標記
-                        window.location.replace(redirectUrl);
-                        // 3秒後沒動就顯示按鈕（備案）
+                        // 如果沒跳轉過，全力嘗試自動喚醒
+                        if (!isRedirected) {
+                            window.location.replace(`https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2`);
+                        }
+                        // 3秒後沒跳走，才顯示手動按鈕
                         setTimeout(() => {
-                            document.getElementById('loading').style.display = 'none';
-                            const btn = document.getElementById('retryBtn');
-                            btn.href = redirectUrl;
+                            loading.style.display = 'none';
+                            btn.href = `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2`;
                             btn.style.display = 'block';
                         }, 3000);
                     } else {
                         liff.login();
                     }
                 } else {
+        // 已登入狀態，直接傳資料並跳轉
                     const profile = await liff.getProfile();
                     if (gclid) {
                         await fetch(N8N_WEBHOOK, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Final' }),
+                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Auto' }),
                             keepalive: true
                         });
                     }
