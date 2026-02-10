@@ -4,73 +4,70 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>正在開啟 LINE...</title>
-    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; }
-        .btn { display: none; padding: 15px 40px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 20px; box-shadow: 0 4px 15px rgba(0,185,0,0.3); }
-        #loading { color: #666; margin-bottom: 20px; }
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #ffffff; }
+        .btn { display: none; padding: 16px 40px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #loading { color: #888; font-size: 16px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
-    <div id="loading">正在為您開啟 LINE 預約頁面...</div>
-    <a id="retryBtn" href="#" class="btn">點此手動開啟 LINE 預約</a>
+    <div id="loading">正在開啟預約對話...</div>
+    <a id="retryBtn" href="#" class="btn">點此手動開啟 LINE</a>
 
     <script>
-        const LIFF_ID = "2009064962-w2XqDG82"; 
-        const LINE_OA_ID = "@138lkhjv"; 
+        // --- 1. 基本設定 ---
+        const LIFF_URL = "https://liff.line.me/2009064962-w2XqDG82"; 
+        const LINE_URL = "https://line.me/R/ti/p/@138lkhjv"; 
         const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
 
-        // 1. 取得 GCLID (只取這一個，避免網址過長)
-        const params = new URLSearchParams(window.location.search);
-        const gclid = params.get('gclid');
-        
-        // 【核心防護】檢查是否已經跳轉過 (使用 sessionStorage，不會增加網址長度)
-        const hasRedirected = sessionStorage.getItem('final_lock');
+        // --- 2. 核心邏輯：防迴圈防火牆 ---
+        // 如果網址後方帶有 #done，代表已經跳轉過一次，絕對不再跑自動邏輯
+        if (window.location.hash === "#done") {
+            showManualButton();
+        } else {
+            executeAutoRedirect();
+        }
 
-        async function main() {
-            // 如果已經嘗試跳轉過，就停下來顯示按鈕，絕對不再自動跳轉 (防止 URI Too Long)
-            if (hasRedirected) {
-                showButton();
-                return;
-            }
+        async function executeAutoRedirect() {
+            const params = new URLSearchParams(window.location.search);
+            const gclid = params.get('gclid');
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-            const isMobile = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-            // 2. 優先發送 GCLID (使用 Beacon 或 fetch，不等待回傳，直接跳轉)
+            // 1. 立即發送 GCLID (使用最穩定的非同步傳輸)
             if (gclid) {
-                const data = JSON.stringify({ gclid: gclid, source: 'Direct_Bridge_Entry' });
+                const payload = JSON.stringify({ gclid: gclid, source: 'Bridge_Final_v3' });
+                // 使用 sendBeacon 確保跳轉時資料必傳且不卡頓
                 if (navigator.sendBeacon) {
-                    navigator.sendBeacon(N8N_WEBHOOK, data);
+                    navigator.sendBeacon(N8N_WEBHOOK, payload);
                 } else {
-                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: payload, keepalive: true });
                 }
             }
 
-            // 標記已經執行過跳轉
-            sessionStorage.setItem('final_lock', 'true');
+            // 2. 構造目標網址 (極簡化，防 URI Too Long)
+            const baseTarget = isMobile ? LIFF_URL : LINE_URL;
+            const finalRedirect = baseTarget + (gclid ? `?gclid=${encodeURIComponent(gclid)}` : "");
 
-            // 3. 執行跳轉
-            const targetUrl = isMobile 
-                ? `https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}` 
-                : `https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`;
+            // 3. 執行跳轉並加上防迴圈標記
+            // 使用 replace 確保瀏覽器歷史紀錄不會一直堆疊
+            window.location.replace(finalRedirect);
 
-            window.location.replace(targetUrl);
-
-            // 4. 針對無痕/攔截：3秒後顯示按鈕
-            setTimeout(showButton, 3000);
+            // 4. 備援機制：如果 3 秒後還留在這頁 (通常是無痕模式)，顯示手動按鈕
+            setTimeout(showManualButton, 3000);
         }
 
-        function showButton() {
+        function showManualButton() {
             document.getElementById('loading').style.display = 'none';
             const btn = document.getElementById('retryBtn');
-            btn.href = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent)
-                ? `https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`
-                : `https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`;
+            const params = new URLSearchParams(window.location.search);
+            const gclid = params.get('gclid');
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            btn.href = (isMobile ? LIFF_URL : LINE_URL) + (gclid ? `?gclid=${encodeURIComponent(gclid)}` : "");
             btn.style.display = 'block';
+            // 修改目前網址加上 #done 防止按鈕點擊後回彈又跳轉
+            window.location.hash = "done";
         }
-
-        main();
     </script>
 </body>
 </html>
-
