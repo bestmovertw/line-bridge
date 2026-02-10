@@ -24,7 +24,7 @@
         const LIFF_ID = "2009064962-w2XqDG82"; 
         const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
         const LINE_OA_ID = "@138lkhjv"; 
-        const SEARCH_ID = "@319tksuv";
+        const SEARCH_ID = "@319tksuv"; // 依要求更新搜尋 ID
         const HOME_URL = "https://www.sweep-j.com/";
 
         async function main() {
@@ -34,27 +34,27 @@
             const statusText = document.getElementById('status-text');
             const loader = document.getElementById('loader');
 
-            // --- 1. 私密模式檢測 ---
+            // --- 1. 私密模式檢測 (立即攔截) ---
             try {
-                sessionStorage.setItem('t', '1');
+                sessionStorage.setItem('p_test', '1');
             } catch (e) {
                 loader.style.display = 'none';
                 statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
-                setTimeout(() => { window.location.replace(HOME_URL); }, 4000);
+                // 私密模式不執行跳轉，直接停止
                 return;
             }
 
-            // --- 2. 【關鍵】第一時間發送數據 ---
-            // 無論手機或電腦，進入頁面立刻先發送一次 GCLID
+            // --- 2. 關鍵修正：進入頁面立刻發送 GCLID ---
             if (gclid) {
-                await sendToN8n(gclid, isMobile ? 'Mobile_Entry' : 'PC_Entry');
+                // 不管是電腦還是手機，第一時間先把「造訪紀錄」送出去
+                sendToN8n(gclid, isMobile ? 'Mobile_Entry' : 'PC_Entry');
             }
 
-            // --- 3. 桌面版跳轉 ---
+            // --- 3. 桌面版分流 ---
             if (!isMobile) {
                 setTimeout(() => {
                     window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
-                }, 800);
+                }, 1000); // 留 1 秒顯示轉圈動畫並確保數據發出
                 return;
             }
 
@@ -64,7 +64,7 @@
 
                 if (!liff.isLoggedIn()) {
                     if (!liff.isInClient()) {
-                        // 外部瀏覽器喚起 App
+                        // 外部瀏覽器：帶上 GCLID 跳轉到 LIFF 頁面
                         window.location.replace(`https://liff.line.me/${LIFF_ID}?${urlParams.toString()}`);
                         return;
                     } else {
@@ -73,22 +73,23 @@
                     }
                 }
 
-                // 如果已經登入，嘗試抓取 Profile 並再次更新數據 (補足 UserId)
+                // 若已在 LINE 內登入，再次嘗試抓取 UID 並發送 (這筆會帶有使用者名稱)
                 const profile = await liff.getProfile();
                 if (gclid) {
-                    await sendToN8n(gclid, 'Mobile_Success_With_UID', profile);
+                    sendToN8n(gclid, 'Mobile_Success_UID', profile);
                 }
 
                 setTimeout(() => {
                     window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                }, 500);
+                }, 600);
 
             } catch (err) {
                 window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
             }
         }
 
-        async function sendToN8n(gclid, source, profile = null) {
+        // 優化後的發送函數
+        function sendToN8n(gclid, source, profile = null) {
             const data = {
                 lineUserId: profile ? profile.userId : 'N/A',
                 lineName: profile ? profile.displayName : 'N/A',
@@ -97,19 +98,21 @@
                 timestamp: new Date().getTime()
             };
 
-            // 使用 Blob 確保 sendBeacon 發送的是正確的 application/json 格式
-            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-            
+            const jsonPayload = JSON.stringify(data);
+
+            // 1. 優先使用 sendBeacon (這是在跳轉時發送資料的最佳方案)
             if (navigator.sendBeacon) {
+                // 必須包成 Blob 才能強制指定 application/json
+                const blob = new Blob([jsonPayload], { type: 'application/json' });
                 navigator.sendBeacon(N8N_WEBHOOK_URL, blob);
             } else {
-                await fetch(N8N_WEBHOOK_URL, {
+                // 2. 備援方案 fetch
+                fetch(N8N_WEBHOOK_URL, {
                     method: 'POST',
-                    mode: 'cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    keepalive: true,
-                    body: JSON.stringify(data)
-                }).catch(() => {});
+                    mode: 'no-cors', // 避免跨域阻擋
+                    body: jsonPayload,
+                    keepalive: true // 確保頁面關閉後繼續傳輸
+                });
             }
         }
 
@@ -117,4 +120,3 @@
     </script>
 </body>
 </html>
-
