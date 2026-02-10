@@ -8,16 +8,24 @@
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
         .container { text-align: center; padding: 0 20px; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        
+        /* 綠色轉圈動畫 */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 45px; height: 45px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
+        
+        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; margin-bottom: 25px; }
         .warning { color: #d93025; font-weight: bold; }
+
+        /* 手動按鈕樣式 */
+        .btn { display: none; padding: 15px 35px; background-color: #00b900; color: white; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 18px; box-shadow: 0 4px 15px rgba(0,185,0,0.3); animation: fadeIn 0.5s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
     <div class="container">
         <div id="loader" class="loader"></div>
         <p id="status-text">正在為您開啟預約對話，請稍候...</p>
+        <a id="manual-btn" href="#" class="btn">點此直接開啟 LINE 預約</a>
     </div>
 
     <script>
@@ -30,75 +38,69 @@
         async function main() {
             const urlParams = new URLSearchParams(window.location.search);
             const gclid = urlParams.get('gclid');
-            const ua = navigator.userAgent || navigator.vendor || window.opera;
-            const isLineBrowser = /Line/i.test(ua);
+            const ua = navigator.userAgent;
             const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+            
             const statusText = document.getElementById('status-text');
             const loader = document.getElementById('loader');
+            const manualBtn = document.getElementById('manual-btn');
 
-            // --- 1. 私密模式檢測 ---
+            // --- 1. 循環防火牆 ---
+            if (window.location.hash === "#stop") {
+                loader.style.display = 'none';
+                statusText.innerHTML = `已停止自動跳轉。`;
+                showBtn();
+                return;
+            }
+
+            // --- 2. 私密模式攔截 ---
             try {
-                sessionStorage.setItem('p_test', '1');
+                localStorage.setItem('p_test', '1');
+                localStorage.removeItem('p_test');
             } catch (e) {
                 loader.style.display = 'none';
                 statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
-                return; 
+                setTimeout(() => { window.location.replace(HOME_URL); }, 4000);
+                return;
             }
 
-            // --- 2. 數據傳送 (使用 Await 確保傳送成功才繼續) ---
+            // --- 3. 數據優先傳送 ---
+            const targetUrl = isMobile 
+                ? `https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}` 
+                : `https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`;
+
             if (gclid) {
-                const sourceTag = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
-                const data = { gclid, source: sourceTag, ts: Date.now() };
-                
-                try {
-                    // 強制等待 n8n 回應，確保資料噴射出去
-                    await fetch(N8N_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data),
-                        mode: 'cors',
-                        keepalive: true
-                    });
-                    console.log("Data sent to n8n");
-                } catch (e) {
-                    console.error("Data send failed", e);
+                const data = { gclid, source: isMobile ? 'Mobile_Auto' : 'PC_Auto', ts: Date.now() };
+                const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(N8N_URL, blob);
+                } else {
+                    fetch(N8N_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(data), keepalive: true });
                 }
             }
 
-            // --- 3. 環境分流跳轉 (切斷循環) ---
+            // 設定按鈕網址
+            manualBtn.href = targetUrl;
 
-            // A. 如果已經在 LINE 裡面了
-            if (isLineBrowser) {
-                try {
-                    await liff.init({ liffId: LIFF_ID });
-                    if (liff.isLoggedIn()) {
-                        const profile = await liff.getProfile();
-                        // 再補傳一次帶有 UID 的資料
-                        fetch(N8N_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Success_UID' }),
-                            mode: 'cors', keepalive: true
-                        });
-                    }
-                } catch (err) {}
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                return;
-            }
+            // --- 4. 時間軸管理 ---
+            
+            // A. 2秒時：顯示手動按鈕
+            setTimeout(() => {
+                showBtn();
+            }, 2000);
 
-            // B. 如果在電腦版
-            if (!isMobile) {
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
-                return;
-            }
+            // B. 3秒時：執行自動跳轉 (並加上防止循環標記)
+            setTimeout(() => {
+                window.location.hash = "stop";
+                window.location.replace(targetUrl);
+            }, 3000);
+        }
 
-            // C. 如果在手機外部瀏覽器 (Safari/Chrome)
-            // 這裡不使用 setTimeout，資料傳完立刻跳轉
-            window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`);
+        function showBtn() {
+            document.getElementById('manual-btn').style.display = 'inline-block';
         }
 
         main();
     </script>
 </body>
 </html>
-
