@@ -2,10 +2,18 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>正在開啟 LINE...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; }
+        .btn { display: none; padding: 15px 30px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 18px; }
+    </style>
 </head>
 <body>
+    <div id="loading">正在為您開啟預約對話...</div>
+    <a id="retryBtn" href="#" class="btn">點此開啟 LINE 預約</a>
+
     <script>
         const LIFF_ID = "2009064962-w2XqDG82"; 
         const LINE_OA_ID = "@138lkhjv"; 
@@ -13,44 +21,37 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const gclid = urlParams.get('gclid');
+        const universalLink = `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}`;
 
         async function main() {
-            // 【核心防跳針】利用 sessionStorage 紀錄是否已經跳轉過
-            // 如果這節次已經跳轉過，就直接停住，不准再次執行跳轉邏輯
-            if (sessionStorage.getItem('redirected')) {
-                console.log("偵測到回流，停止跳針");
-                return;
-            }
-
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-            // 1. 電腦版處理 (簡單暴力，不囉唆)
+            // 設定備援按鈕 (針對 Chrome 無痕)
+            const btn = document.getElementById('retryBtn');
+            btn.href = isMobile ? universalLink : `https://line.me/R/ti/p/${LINE_OA_ID}`;
+
+            // 1. 電腦版處理
             if (!isMobile) {
                 if (gclid) {
-                    fetch(N8N_WEBHOOK, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        body: JSON.stringify({ gclid: gclid, source: 'PC_Direct' }),
-                        keepalive: true
-                    });
+                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'PC_Direct' }), keepalive: true });
                 }
-                sessionStorage.setItem('redirected', 'true');
-                setTimeout(() => {
-                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                }, 500);
+                setTimeout(() => { window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`); }, 500);
+                setTimeout(() => { btn.style.display = 'block'; document.getElementById('loading').style.display='none'; }, 3000);
                 return;
             }
 
             // 2. 手機版處理
             try {
                 await liff.init({ liffId: LIFF_ID });
-                
                 if (!liff.isLoggedIn()) {
                     if (!liff.isInClient()) {
-                        // 標記為已跳轉，防止被 LINE 彈回瀏覽器時再次觸發
-                        sessionStorage.setItem('redirected', 'true');
-                        // 強制喚醒 App
-                        window.location.replace(`https://liff.line.me/${LIFF_ID}?${urlParams.toString()}`);
+                        // 嘗試自動喚醒
+                        window.location.replace(universalLink);
+                        // 如果 3 秒後還在原網頁，代表被 Chrome 擋住了，顯示按鈕
+                        setTimeout(() => { 
+                            btn.style.display = 'block'; 
+                            document.getElementById('loading').style.display='none';
+                        }, 3000);
                     } else {
                         liff.login();
                     }
@@ -60,19 +61,11 @@
                         await fetch(N8N_WEBHOOK, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                lineUserId: profile.userId,
-                                lineName: profile.displayName,
-                                gclid: gclid,
-                                source: 'Mobile_Final'
-                            }),
+                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Final' }),
                             keepalive: true
                         });
                     }
-                    sessionStorage.setItem('redirected', 'true');
-                    setTimeout(() => {
-                        window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                    }, 500);
+                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
                 }
             } catch (err) {
                 window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
@@ -82,3 +75,4 @@
     </script>
 </body>
 </html>
+
