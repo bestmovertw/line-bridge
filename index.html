@@ -6,63 +6,66 @@
     <title>正在開啟 LINE...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .btn { display: none; padding: 15px 40px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 20px; }
+        body { font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; }
+        .btn { display: none; padding: 15px 40px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 20px; box-shadow: 0 4px 15px rgba(0,185,0,0.3); }
+        #loading { color: #666; margin-bottom: 20px; }
     </style>
 </head>
 <body>
-    <div id="msg">正在為您跳轉至 LINE...</div>
-    <a id="retryBtn" href="#" class="btn">點此開啟 LINE 預約</a>
+    <div id="loading">正在為您開啟 LINE 預約頁面...</div>
+    <a id="retryBtn" href="#" class="btn">點此手動開啟 LINE 預約</a>
 
     <script>
         const LIFF_ID = "2009064962-w2XqDG82"; 
         const LINE_OA_ID = "@138lkhjv"; 
         const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const gclid = urlParams.get('gclid');
+        // 1. 取得 GCLID (只取這一個，避免網址過長)
+        const params = new URLSearchParams(window.location.search);
+        const gclid = params.get('gclid');
+        
+        // 【核心防護】檢查是否已經跳轉過 (使用 sessionStorage，不會增加網址長度)
+        const hasRedirected = sessionStorage.getItem('final_lock');
 
         async function main() {
-            // 1. 優先發送 GCLID 給 n8n (精簡傳送，不帶多餘參數)
-            if (gclid && !sessionStorage.getItem('sent')) {
-                fetch(N8N_WEBHOOK, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    body: JSON.stringify({ gclid: gclid, source: 'Bridge_Page_Entry' }),
-                    keepalive: true
-                });
-                sessionStorage.setItem('sent', 'true');
-            }
-
-            // 2. 防跳針鎖：如果這頁已經嘗試過跳轉，立刻停住
-            if (sessionStorage.getItem('redirected')) {
+            // 如果已經嘗試跳轉過，就停下來顯示按鈕，絕對不再自動跳轉 (防止 URI Too Long)
+            if (hasRedirected) {
                 showButton();
                 return;
             }
 
             const isMobile = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
-            
-            // 關鍵修正：只保留 gclid 參數，避免網址過長
-            const cleanParams = gclid ? `?gclid=${encodeURIComponent(gclid)}` : '';
-            const targetUrl = isMobile 
-                ? `https://liff.line.me/${LIFF_ID}${cleanParams}` 
-                : `https://line.me/R/ti/p/${LINE_OA_ID}${cleanParams}`;
+
+            // 2. 優先發送 GCLID (使用 Beacon 或 fetch，不等待回傳，直接跳轉)
+            if (gclid) {
+                const data = JSON.stringify({ gclid: gclid, source: 'Direct_Bridge_Entry' });
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(N8N_WEBHOOK, data);
+                } else {
+                    fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                }
+            }
+
+            // 標記已經執行過跳轉
+            sessionStorage.setItem('final_lock', 'true');
 
             // 3. 執行跳轉
-            sessionStorage.setItem('redirected', 'true');
+            const targetUrl = isMobile 
+                ? `https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}` 
+                : `https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`;
+
             window.location.replace(targetUrl);
 
-            // 針對無痕模式/攔截：3秒後出按鈕
+            // 4. 針對無痕/攔截：3秒後顯示按鈕
             setTimeout(showButton, 3000);
         }
 
         function showButton() {
-            document.getElementById('msg').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
             const btn = document.getElementById('retryBtn');
-            const cleanParams = gclid ? `?gclid=${encodeURIComponent(gclid)}` : '';
             btn.href = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent)
-                ? `https://liff.line.me/${LIFF_ID}${cleanParams}`
-                : `https://line.me/R/ti/p/${LINE_OA_ID}${cleanParams}`;
+                ? `https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`
+                : `https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`;
             btn.style.display = 'block';
         }
 
