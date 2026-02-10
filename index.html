@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟預約系統...</title>
+    <title>正在同步預約資訊...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
         .container { text-align: center; padding: 0 20px; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: 500; }
+        p { color: #555; font-size: 16px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -20,26 +20,25 @@
     </div>
 
     <script>
-        // --- 設定區 ---
         const CONFIG = {
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
-            LINE_OA_ID: "@138lkhjv",
-            HOME_URL: "https://www.sweep-j.com/"
+            LINE_OA_ID: "@138lkhjv"
         };
 
-        // --- 核心傳送函數 ---
-        async function transmit(data) {
-            try {
-                // 使用 text/plain 避免 CORS 預檢阻擋，確保傳送成功率
-                await fetch(CONFIG.N8N_URL, {
-                    method: 'POST',
-                    mode: 'no-cors', 
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: JSON.stringify(data),
-                    keepalive: true
-                });
-            } catch (e) { console.error("Transmit error", e); }
+        // --- 使用 URLSearchParams (Form Data) 確保 n8n 能自動解析欄位 ---
+        function send(data) {
+            const formData = new URLSearchParams();
+            for (const key in data) { 
+                formData.append(key, data[key]); 
+            }
+
+            // 使用 sendBeacon 確保即使頁面關閉也能送達
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(CONFIG.N8N_URL, formData);
+            } else {
+                fetch(CONFIG.N8N_URL, { method: 'POST', body: formData, mode: 'no-cors' });
+            }
         }
 
         async function main() {
@@ -49,7 +48,6 @@
             const isLine = ua.indexOf('line') > -1;
             const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
-            // 初始化 Payload (對齊 n8n 欄位)
             let payload = {
                 gclid: gclid,
                 source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
@@ -58,9 +56,7 @@
                 lineName: ""
             };
 
-            // 1. 環境判斷與資料抓取
             if (isLine) {
-                // 在 LINE 內部環境：嘗試抓取個人資料
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
                     if (liff.isLoggedIn()) {
@@ -71,36 +67,23 @@
                     }
                 } catch (e) { console.warn("LIFF error", e); }
                 
-                // 立即發送並跳轉至 OA 聊天室 (切斷跳轉循環)
-                await transmit(payload);
+                send(payload);
                 window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
                 return;
             }
 
-            // 2. 外部環境處理 (PC 或手機瀏覽器)
-            if (gclid) {
-                await transmit(payload);
-            }
-
-            // 3. 執行分流跳轉
+            // 外部環境處理
+            send(payload);
+            
             setTimeout(() => {
-                let target;
-                if (!isMobile) {
-                    // 電腦版：導向加好友 QR Code
-                    target = `https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`;
-                } else {
-                    // 手機外部瀏覽器：導向 LIFF
-                    target = `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`;
-                }
+                const target = isMobile 
+                    ? `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`
+                    : `https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`;
                 window.location.replace(target);
             }, 800);
         }
 
-        // 執行主程式
-        main().catch(err => {
-            console.error("Main error", err);
-            window.location.replace(CONFIG.HOME_URL);
-        });
+        main();
     </script>
 </body>
 </html>
