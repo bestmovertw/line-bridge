@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在同步資訊...</title>
+    <title>正在開啟預約系統...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
@@ -47,29 +47,41 @@
                 source: isLine ? "Inside_Line" : "External_Browser",
                 timestamp: new Date().toISOString(),
                 lineUserId: "",
-                lineName: "" // 這裡預留抓取名稱
+                lineName: ""
             };
 
             if (isLine) {
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
-                    if (liff.isLoggedIn()) {
-                        const profile = await liff.getProfile();
-                        payload.lineUserId = profile.userId;
-                        payload.lineName = profile.displayName; // 👈 抓取 LINE 名稱
-                        payload.source = "Mobile_Success_UID";
+                    
+                    // 如果沒登入，強制執行登入流程
+                    if (!liff.isLoggedIn()) {
+                        liff.login({ redirectUri: window.location.href });
+                        return; // 停止執行，等待登入跳回
                     }
+
+                    // 登入成功後抓取資料
+                    const profile = await liff.getProfile();
+                    payload.lineUserId = profile.userId;
+                    payload.lineName = profile.displayName;
+                    payload.source = "Mobile_Success_UID";
+                    
                 } catch (e) { console.error("LIFF Error", e); }
                 
                 send(payload);
-                window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
+                // 稍微延遲給數據傳送時間
+                setTimeout(() => {
+                    window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
+                }, 500);
             } else {
+                // 外部瀏覽器：先送第一筆基本資料
                 send(payload);
                 setTimeout(() => {
                     window.location.replace(`https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`);
                 }, 800);
             }
         }
+
         main();
     </script>
 </body>
