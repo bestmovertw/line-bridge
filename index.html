@@ -6,11 +6,8 @@
     <title>正在開啟 LINE...</title>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; }
-        
-        /* 綠色轉圈動畫 */
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
         #message { font-size: 16px; text-align: center; color: #333; line-height: 1.5; padding: 0 20px; }
         .warning { color: #d93025; font-weight: bold; }
     </style>
@@ -25,40 +22,39 @@
         const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
         const HOME_URL = "https://www.sweep-j.com/";
 
-        async function main() {
+        // 【核心防火牆】只要網址後面有 #stop，絕對禁止任何自動動作
+        if (window.location.hash === "#stop") {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('message').innerHTML = '跳轉已停止。若未開啟 LINE，請返回官網嘗試。';
+        } else {
+            runBridge();
+        }
+
+        async function runBridge() {
             const params = new URLSearchParams(window.location.search);
             const gclid = params.get('gclid');
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const msgEl = document.getElementById('message');
-            const loaderEl = document.getElementById('loader');
-
-            // --- 1. 私密模式檢測 (核心攔截) ---
+            
+            // 1. 私密模式攔截
             let isPrivate = false;
             try {
-                localStorage.setItem('private_test', '1');
-                localStorage.removeItem('private_test');
+                localStorage.setItem('p_test', '1');
+                localStorage.removeItem('p_test');
             } catch (e) {
                 isPrivate = true;
             }
 
             if (isPrivate) {
-                loaderEl.style.display = 'none';
-                msgEl.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽或無痕瀏覽</span><br>正在為您跳轉回首頁...`;
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('message').innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽或無痕瀏覽</span><br>正在跳轉回首頁...`;
                 setTimeout(() => { window.location.replace(HOME_URL); }, 2500);
                 return;
             }
 
-            // --- 2. 防止無限跳轉 (解決 URI Too Long 的關鍵) ---
-            // 使用 sessionStorage 作為一次性鎖頭，若已跳轉過就不再自動跳轉
-            if (sessionStorage.getItem('redirected')) {
-                loaderEl.style.display = 'none';
-                msgEl.innerHTML = `若頁面未自動跳轉，請檢查 LINE 設定。<br><br><a href="${HOME_URL}" style="color:#00b900;">回到首頁</a>`;
-                return;
-            }
-
-            // --- 3. 發送 GCLID ---
+            // 2. 正常模式：發送數據 (GCLID 務必成功)
             if (gclid) {
                 const data = JSON.stringify({ gclid: gclid, source: isMobile ? 'Mobile_Auto' : 'PC_Auto' });
+                // 使用 sendBeacon 確保即使跳轉也能發出資料
                 if (navigator.sendBeacon) {
                     navigator.sendBeacon(N8N_WEBHOOK, data);
                 } else {
@@ -66,17 +62,17 @@
                 }
             }
 
-            // --- 4. 執行自動跳轉 ---
-            sessionStorage.setItem('redirected', 'true'); // 上鎖
-            const target = isMobile ? LIFF_URL : LINE_QR_URL;
-            const finalUrl = gclid ? `${target}?gclid=${encodeURIComponent(gclid)}` : target;
+            // 3. 執行跳轉 (加上 #stop 標記防止迴圈)
+            const targetBase = isMobile ? LIFF_URL : LINE_QR_URL;
+            const finalTarget = `${targetBase}?gclid=${gclid || ''}#stop`;
+
+            // 標記本頁已跳轉（雙重保險）
+            window.location.hash = "stop";
 
             setTimeout(() => {
-                window.location.replace(finalUrl);
-            }, 800); // 留 0.8 秒給轉圈動畫與資料發送
+                window.location.replace(finalTarget);
+            }, 1000); // 留 1 秒顯示轉圈動畫
         }
-
-        main();
     </script>
 </body>
 </html>
