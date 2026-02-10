@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在開啟預約系統...</title>
+    <title>正在開啟 LINE...</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #fff; }
-        .btn { display: none; padding: 15px 30px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 18px; box-shadow: 0 4px 15px rgba(0,185,0,0.3); }
-        #loading { color: #666; margin-bottom: 20px; }
+        .btn { display: none; padding: 15px 40px; background: #00b900; color: #fff; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 20px; box-shadow: 0 4px 15px rgba(0,185,0,0.3); }
+        #loading { color: #666; margin-bottom: 20px; font-size: 16px; }
     </style>
 </head>
 <body>
-    <div id="loading">正在為您開啟 LINE...</div>
+    <div id="loading">正在為您開啟 LINE 預約頁面...</div>
     <a id="retryBtn" href="#" class="btn">點此手動開啟 LINE 預約</a>
 
     <script>
@@ -20,73 +20,50 @@
         const LINE_OA_ID = "@138lkhjv"; 
         const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const gclid = urlParams.get('gclid');
+        // 雙重鎖定判斷：網址參數 step=2 或 網址錨點 #step2
+        const isRedirected = urlParams.get('step') === '2' || window.location.hash === '#step2';
+
         async function main() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const gclid = urlParams.get('gclid');
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             const btn = document.getElementById('retryBtn');
+            const loading = document.getElementById('loading');
 
-            // 1. 如果有 GCLID，先發送給 n8n (不管什麼環境)
-            if (gclid) {
-                // 將 GCLID 存入 sessionStorage 備用，避免轉址弄丟
-                sessionStorage.setItem('current_gclid', gclid);
-                fetch(N8N_WEBHOOK, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    body: JSON.stringify({ gclid, source: 'Initial_Capture' }),
-                    keepalive: true
-                });
+            // --- 終極防跳針：只要有標記，絕對不自動跳轉 ---
+            if (isRedirected) {
+                loading.style.display = 'none';
+                btn.href = isMobile ? `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}` : `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                btn.style.display = 'block';
+                return; // 強制結束腳本，不跑後面的邏輯
             }
 
-            const storedGclid = sessionStorage.getItem('current_gclid');
-
-            // 2. 電腦版處理 (乾淨轉址)
+            // --- A. 電腦版：直接轉至 QR Code ---
             if (!isMobile) {
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
+                if (gclid) fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'PC_Auto' }), keepalive: true });
+                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid}&step=2#step2`);
                 return;
             }
 
-            // 3. 手機版處理
-            try {
-                await liff.init({ liffId: LIFF_ID });
-                
-                if (!liff.isLoggedIn()) {
-                    if (!liff.isInClient()) {
-                        // 【關鍵修復】不要帶長網址跳轉，直接喚醒 LIFF 乾淨路徑
-                        window.location.replace(`https://liff.line.me/${LIFF_ID}`);
-                        // 3秒後沒動才出按鈕
-                        setTimeout(() => {
-                            document.getElementById('loading').style.display='none';
-                            btn.href = `https://liff.line.me/${LIFF_ID}`;
-                            btn.style.display = 'block';
-                        }, 3000);
-                    } else {
-                        liff.login();
-                    }
-                } else {
-                    const profile = await liff.getProfile();
-                    // 只有在 LINE 內且已登入，才發送最終綁定數據
-                    if (storedGclid) {
-                        await fetch(N8N_WEBHOOK, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                lineUserId: profile.userId,
-                                lineName: profile.displayName,
-                                gclid: storedGclid,
-                                source: 'Final_Binding'
-                            }),
-                            keepalive: true
-                        });
-                    }
-                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-                }
-            } catch (err) {
-                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
+            // --- B. 手機版第一次進入：嘗試自動跳轉 ---
+            if (gclid) {
+                fetch(N8N_WEBHOOK, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ gclid, source: 'Mobile_First_Attempt' }), keepalive: true });
             }
+
+            // 針對 Chrome 私密模式優化：使用 replace 避免歷史紀錄干擾
+            setTimeout(() => {
+                window.location.replace(`https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2#step2`);
+            }, 500);
+
+            // 3秒後沒跳走（代表被攔截），顯示按鈕救回
+            setTimeout(() => {
+                loading.style.display = 'none';
+                btn.href = `https://liff.line.me/${LIFF_ID}?${urlParams.toString()}&step=2#step2`;
+                btn.style.display = 'block';
+            }, 3000);
         }
+
         main();
     </script>
 </body>
 </html>
-
