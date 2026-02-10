@@ -25,73 +25,76 @@
         const N8N_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
         const LINE_OA_ID = "@138lkhjv"; 
         const SEARCH_ID = "@319tksuv";
+        const HOME_URL = "https://www.sweep-j.com/";
 
         async function main() {
             const urlParams = new URLSearchParams(window.location.search);
             const gclid = urlParams.get('gclid');
             const ua = navigator.userAgent || navigator.vendor || window.opera;
-            
-            // 關鍵判斷：是否已經在 LINE 內建瀏覽器中
-            const isLineBrowser = /Line/i.test(ua); 
+            const isLineBrowser = /Line/i.test(ua);
             const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
-            
             const statusText = document.getElementById('status-text');
             const loader = document.getElementById('loader');
 
-            // --- 1. 私密模式攔截 (立即終止所有動作) ---
+            // --- 1. 私密模式檢測 ---
             try {
                 sessionStorage.setItem('p_test', '1');
             } catch (e) {
                 loader.style.display = 'none';
-                statusText.innerHTML = `<span class="warning">請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
-                return; // 強制停止，絕對不跳轉
+                statusText.innerHTML = `<span class="warning">為使功能正常，請勿使用私密瀏覽、無痕瀏覽，<br>或搜尋 line ID: ${SEARCH_ID}</span>`;
+                return; 
             }
 
-            // --- 2. 數據優先傳送 (GCLID 務必成功) ---
+            // --- 2. 數據傳送 (使用 Await 確保傳送成功才繼續) ---
             if (gclid) {
-                const source = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
-                const data = JSON.stringify({ gclid, source, ts: Date.now() });
-                const blob = new Blob([data], { type: 'application/json' });
+                const sourceTag = isLineBrowser ? 'Inside_Line' : (isMobile ? 'Mobile_External' : 'PC_Entry');
+                const data = { gclid, source: sourceTag, ts: Date.now() };
                 
-                // 使用 sendBeacon 確保即使跳轉也能發出資料
-                if (navigator.sendBeacon) {
-                    navigator.sendBeacon(N8N_URL, blob);
-                } else {
-                    fetch(N8N_URL, { method: 'POST', mode: 'no-cors', body: data, keepalive: true });
+                try {
+                    // 強制等待 n8n 回應，確保資料噴射出去
+                    await fetch(N8N_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data),
+                        mode: 'cors',
+                        keepalive: true
+                    });
+                    console.log("Data sent to n8n");
+                } catch (e) {
+                    console.error("Data send failed", e);
                 }
             }
 
-            // --- 3. 核心分流邏輯 (徹底解決循環) ---
+            // --- 3. 環境分流跳轉 (切斷循環) ---
 
-            // A. 如果已經在 LINE 裡面：執行結算邏輯，然後去聊天室
+            // A. 如果已經在 LINE 裡面了
             if (isLineBrowser) {
                 try {
                     await liff.init({ liffId: LIFF_ID });
                     if (liff.isLoggedIn()) {
                         const profile = await liff.getProfile();
-                        const uidData = JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Success_UID' });
-                        navigator.sendBeacon(N8N_URL, new Blob([uidData], { type: 'application/json' }));
+                        // 再補傳一次帶有 UID 的資料
+                        fetch(N8N_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lineUserId: profile.userId, lineName: profile.displayName, gclid, source: 'Mobile_Success_UID' }),
+                            mode: 'cors', keepalive: true
+                        });
                     }
-                } catch (err) { console.error(err); }
-                
-                // 絕對不再去 liff.line.me，改去 OA 聊天室連結
+                } catch (err) {}
                 window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
                 return;
             }
 
-            // B. 如果在電腦版：直接去 QR Code 頁面
+            // B. 如果在電腦版
             if (!isMobile) {
-                setTimeout(() => {
-                    window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
-                }, 1000);
+                window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclid || ''}`);
                 return;
             }
 
-            // C. 如果在手機外部瀏覽器 (Safari/Chrome)：執行第一次跳轉
-            setTimeout(() => {
-                // 使用 replace 並重新構造極簡網址，徹底解決 URI Too Long
-                window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`);
-            }, 1000);
+            // C. 如果在手機外部瀏覽器 (Safari/Chrome)
+            // 這裡不使用 setTimeout，資料傳完立刻跳轉
+            window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclid || ''}`);
         }
 
         main();
