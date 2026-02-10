@@ -1,161 +1,100 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>正在開啟預約系統...</title>
-
-  <!-- LIFF SDK -->
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      margin: 0;
-      background-color: #ffffff;
-    }
-    .container { text-align: center; padding: 0 20px; }
-    .loader {
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #00b900;
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
-    .hint { margin-top: 10px; font-size: 13px; color: #888; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正在開啟預約系統...</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
+        .container { text-align: center; padding: 0 20px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        p { color: #555; font-size: 16px; font-weight: 500; line-height: 1.6; }
+    </style>
 </head>
-
 <body>
-  <div class="container">
-    <div id="loader" class="loader"></div>
-    <p id="status-text">正在為您開啟預約對話，請稍候...</p>
-    <div id="hint" class="hint"></div>
-  </div>
+    <div class="container">
+        <div id="loader" class="loader"></div>
+        <p id="status-text">正在為您開啟預約對話，請稍候...</p>
+    </div>
 
-  <script>
-    // ====== 你要用的設定（保留你的值） ======
-    const LIFF_ID   = "2009064962-w2XqDG82";
-    const N8N_URL   = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-    const LINE_OA_ID = "@138lkhjv";
-    const HOME_URL  = "https://www.sweep-j.com/";
-    // =====================================
+    <script>
+        // 設定區
+        const CONFIG = {
+            LIFF_ID: "2009064962-w2XqDG82",
+            N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
+            LINE_OA_ID: "@138lkhjv",
+            HOME_URL: "https://www.sweep-j.com/"
+        };
 
-    const statusText = document.getElementById("status-text");
-    const hintEl = document.getElementById("hint");
-
-    function setStatus(text, hint = "") {
-      statusText.textContent = text;
-      hintEl.textContent = hint;
-    }
-
-    function safeEncode(v) {
-      return v ? encodeURIComponent(v) : "";
-    }
-
-    function detectEnv() {
-      const ua = navigator.userAgent || navigator.vendor || window.opera || "";
-      const isLineBrowser = /Line/i.test(ua); // LINE in-app browser
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
-
-      return { ua, isLineBrowser, isMobile };
-    }
-
-    async function postToN8n(payload) {
-      // 注意：若 n8n / 反代沒開 CORS，瀏覽器會擋（console 會看到 CORS error）
-      // 但 keepalive + await 已經是你原本想要的「盡量確保送出」方式
-      return fetch(N8N_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        mode: "cors",
-        keepalive: true,
-        cache: "no-store",
-      });
-    }
-
-    async function main() {
-      const { isLineBrowser, isMobile } = detectEnv();
-
-      // 讀取網址參數
-      const urlParams = new URLSearchParams(window.location.search);
-      const gclid = urlParams.get("gclid"); // Google Ads gclid
-      const gclidSafe = safeEncode(gclid);
-
-      // ---- 1) 先送 gclid 到 n8n（有就送）----
-      if (gclid) {
-        const sourceTag = isLineBrowser ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry");
-        const data = { gclid, source: sourceTag, ts: Date.now() };
-
-        try {
-          setStatus("正在同步追蹤資訊...", "正在傳送 gclid 至系統");
-          const res = await postToN8n(data);
-          // 不強制要求 200，但你可以用來 debug
-          console.log("n8n response:", res.status);
-        } catch (e) {
-          console.error("Data send failed:", e);
-          // 不中斷流程，仍然繼續跳轉
-        }
-      }
-
-      // ---- 2) 分流跳轉（切斷循環）----
-      // A) LINE in-app browser
-      if (isLineBrowser) {
-        setStatus("正在開啟 LINE 預約對話...", "偵測到 LINE 內建瀏覽器");
-
-        try {
-          await liff.init({ liffId: LIFF_ID });
-
-          if (liff.isLoggedIn()) {
-            const profile = await liff.getProfile();
-
-            // 補送一次帶 UID 的資料（不 await，避免拖慢跳轉）
-            postToN8n({
-              lineUserId: profile.userId,
-              lineName: profile.displayName,
-              gclid: gclid || "",
-              source: "Mobile_Success_UID",
-              ts: Date.now()
-            }).catch(() => {});
-          }
-        } catch (err) {
-          // LIFF init 失敗不影響後續導去 OA
-          console.warn("LIFF init/getProfile failed:", err);
+        function transmit(payload) {
+            const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            // sendBeacon 是非同步且不阻塞的，最適合跳轉前使用
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(CONFIG.N8N_URL, blob);
+            } else {
+                fetch(CONFIG.N8N_URL, { method: "POST", body: blob, keepalive: true, mode: 'no-cors' });
+            }
         }
 
-        // ✅ 你原本這行會炸：少字串反引號
-        window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}`);
-        return;
-      }
+        async function main() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const gclid = urlParams.get('gclid') || "";
+            
+            // 更強大的環境偵測
+            const ua = navigator.userAgent.toLowerCase();
+            const isLine = ua.indexOf('line') > -1;
+            const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
-      // B) Desktop
-      if (!isMobile) {
-        setStatus("正在顯示電腦版加入方式...", "將帶您前往 LINE 官方帳號");
-        // ✅ 你原本這行會炸：少字串反引號
-        window.location.replace(`https://line.me/R/ti/p/${LINE_OA_ID}?gclid=${gclidSafe}`);
-        return;
-      }
+            // 1. 如果已經在 LINE 裡面了 (防止循環的核心)
+            if (isLine) {
+                try {
+                    await liff.init({ liffId: CONFIG.LIFF_ID });
+                    if (liff.isLoggedIn()) {
+                        const profile = await liff.getProfile();
+                        transmit({
+                            gclid: gclid,
+                            lineUserId: profile.userId,
+                            lineName: profile.displayName,
+                            source: "Success_UID",
+                            ts: Date.now()
+                        });
+                    }
+                } catch (e) { console.warn("LIFF Error", e); }
+                
+                // 已經在 LINE 裡，直接去 OA 聊天室，不要再跳 liff.line.me
+                window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
+                return;
+            }
 
-      // C) Mobile external browser (Safari/Chrome)
-      setStatus("正在切換到 LIFF...", "將在 LIFF 中開啟後續流程");
-      // ✅ 你原本這行會炸：少字串反引號
-      window.location.replace(`https://liff.line.me/${LIFF_ID}?gclid=${gclidSafe}`);
-    }
+            // 2. 外部環境：先送出初步數據
+            if (gclid) {
+                transmit({
+                    gclid: gclid,
+                    source: isMobile ? "Mobile_External" : "PC_Entry",
+                    ts: Date.now()
+                });
+            }
 
-    // 保護：若意外拋錯，至少導回官網
-    main().catch((e) => {
-      console.error("Fatal error:", e);
-      setStatus("發生錯誤，正在返回首頁...", "請稍候");
-      setTimeout(() => window.location.replace(HOME_URL), 800);
-    });
-  </script>
+            // 3. 執行分流跳轉
+            setTimeout(() => {
+                let target;
+                if (!isMobile) {
+                    // 電腦版
+                    target = "https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID + "?gclid=" + encodeURIComponent(gclid);
+                } else {
+                    // 手機外部瀏覽器
+                    target = "https://liff.line.me/" + CONFIG.LIFF_ID + "?gclid=" + encodeURIComponent(gclid);
+                }
+                window.location.replace(target);
+            }, 500); // 留 0.5 秒給 sendBeacon
+        }
+
+        main().catch(err => {
+            console.error(err);
+            window.location.replace(CONFIG.HOME_URL);
+        });
+    </script>
 </body>
 </html>
