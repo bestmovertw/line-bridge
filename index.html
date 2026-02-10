@@ -7,7 +7,7 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
-        .container { text-align: center; padding: 0 -20px; }
+        .container { text-align: center; padding: 0 20px; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         p { color: #555; font-size: 16px; font-weight: bold; }
@@ -23,7 +23,8 @@
         const CONFIG = {
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
-            LINE_OA_ID: "@138lkhjv"
+            MOBILE_OA_ID: "@138lkhjv", // 手機版 OA
+            PC_OA_ID: "@319tksuv"      // 電腦版專屬 OA
         };
 
         function send(data) {
@@ -37,7 +38,7 @@
         }
 
         async function main() {
-            // --- 防循環機制 1：檢查網址是否有停止標籤 ---
+            // 防跳轉迴圈斷路器
             if (window.location.hash === "#done") return;
 
             const params = new URLSearchParams(window.location.search);
@@ -54,46 +55,42 @@
                 lineName: ""
             };
 
-            // --- 判斷 1：在 LINE 內部 (手機) ---
+            // --- 分流邏輯 1：電腦版使用者 ---
+            if (!isMobile) {
+                send(payload);
+                window.location.hash = "done";
+                // 導向專屬 PC 的 LINE OA
+                setTimeout(() => {
+                    window.location.replace(`https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`);
+                }, 500);
+                return;
+            }
+
+            // --- 分流邏輯 2：手機端且在 LINE 內部 ---
             if (isLine) {
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
-                    
                     if (!liff.isLoggedIn()) {
-                        // 登入會導致頁面重導向，所以這是循環的風險點
                         liff.login({ redirectUri: window.location.href });
                         return;
                     }
-
                     const profile = await liff.getProfile();
                     payload.lineUserId = profile.userId;
                     payload.lineName = profile.displayName;
                     payload.source = "Mobile_Success_UID";
                     
                     send(payload);
-                    
-                    // 標記已完成，並跳轉至 OA
                     window.location.hash = "done";
                     setTimeout(() => {
-                        window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
+                        window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`);
                     }, 500);
-                } catch (e) { 
-                    console.error(e);
-                    window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
+                } catch (e) {
+                    window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`);
                 }
                 return;
             }
 
-            // --- 判斷 2：電腦版 (PC) ---
-            if (!isMobile) {
-                send(payload);
-                window.location.hash = "done";
-                // PC 版直接開啟 LINE 連結，不再轉去 LIFF
-                window.location.replace(`https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`);
-                return;
-            }
-
-            // --- 判斷 3：手機外部瀏覽器 (Safari/Chrome) ---
+            // --- 分流邏輯 3：手機外部瀏覽器 (Safari/Chrome) ---
             send(payload);
             window.location.hash = "done";
             setTimeout(() => {
