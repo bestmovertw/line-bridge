@@ -1,64 +1,67 @@
-<script>
-    const LIFF_ID = "2009064962-w2XqDG82"; 
-    const N8N_WEBHOOK_URL = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
-    const LINE_OA_ID = "@138lkhjv"; 
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>正在開啟 LINE...</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+    <script>
+        const LIFF_ID = "2009064962-w2XqDG82"; 
+        const LINE_OA_ID = "@138lkhjv"; 
+        const N8N_WEBHOOK = "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f";
 
-    async function main() {
-        try {
-            await liff.init({ liffId: LIFF_ID });
+        // 1. 立即判斷是否為電腦版 (不依賴 LIFF SDK)
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-            // --- 新增電腦版判斷邏輯 ---
-            if (!liff.isInClient() && liff.getOS() === "web") {
-                console.log("偵測到電腦版瀏覽器");
-                // 為了不讓電腦版使用者卡在登入頁，直接嘗試抓取 GCLID 並發送，然後導向 OA
-                const urlParams = new URLSearchParams(window.location.search);
-                const gclid = urlParams.get('gclid');
-                
+        async function main() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const gclid = urlParams.get('gclid');
+
+            if (!isMobile) {
+                // 【電腦版處理】直接暴力轉址到加好友 QR Code 頁面
+                console.log("電腦版環境：直接跳轉");
                 if (gclid) {
-                    // 電腦版雖然拿不到 LINE UID，但我們先記錄這筆 GCLID 點擊
-                    await fetch(N8N_WEBHOOK_URL, {
+                    // 嘗試發送一次點擊紀錄給 n8n，但不論成功與否都跳轉
+                    fetch(N8N_WEBHOOK, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            gclid: gclid,
-                            source: 'PC_Browser_Click',
-                            note: '使用者使用電腦開啟，未進行 LINE 授權'
-                        })
+                        body: JSON.stringify({ gclid: gclid, source: 'PC_Direct_Jump' })
                     }).catch(() => {});
                 }
+                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
+                return; 
+            }
+
+            // 2. 【手機版處理】走原本的 LIFF 邏輯
+            try {
+                await liff.init({ liffId: LIFF_ID });
                 
-                // 直接導向 LINE 官方帳號的加入好友頁面 (電腦版會顯示 QR Code)
-                window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
-                return;
-            }
-            // --- 電腦版處理結束 ---
-
-            // 原本的手機版邏輯保留
-            if (!liff.isLoggedIn()) {
-                liff.login();
-            } else {
-                const profile = await liff.getProfile();
-                const urlParams = new URLSearchParams(window.location.search);
-                const gclid = urlParams.get('gclid');
-
-                if (gclid) {
-                    await fetch(N8N_WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            lineUserId: profile.userId,
-                            lineName: profile.displayName,
-                            gclid: gclid,
-                            source: 'Wix_to_GitHub_Bridge'
-                        })
-                    });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                } else {
+                    const profile = await liff.getProfile();
+                    if (gclid) {
+                        await fetch(N8N_WEBHOOK, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                lineUserId: profile.userId,
+                                lineName: profile.displayName,
+                                gclid: gclid,
+                                source: 'Mobile_LIFF_Success'
+                            })
+                        });
+                    }
+                    window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
                 }
+            } catch (err) {
+                console.error("LIFF 啟動失敗", err);
                 window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
             }
-        } catch (err) {
-            console.error(err);
-            window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
         }
-    }
-    main();
-</script>
+
+        main();
+    </script>
+</body>
+</html>
