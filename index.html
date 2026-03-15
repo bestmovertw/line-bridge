@@ -25,7 +25,7 @@
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
             LINE_OA_ID: "@138lkhjv",
             MOBILE_OA_ID: "@138lkhjv",
-            PC_OA_ID: "@138lkhjv"  
+            PC_OA_ID: "@138lkhjv" // 已依照指示統一導向 @138lkhjv
         };
 
         const ua = navigator.userAgent;
@@ -41,32 +41,33 @@
         }
 
         async function main() {
+            // --- 防循環機制：保持不動 ---
             if (window.location.hash === "#done") return;
 
             const params = new URLSearchParams(window.location.search);
-            const gclid = params.get('gclid') || "";
+            const gclid = params.get('gclid') || ""; // [優化] 確保抓取 GCLID
 
             let payload = {
                 source: "Liff_Entry",
-                gclid: gclid,
+                gclid: gclid, // [優化] 注入 GCLID 到 payload
                 lineUserId: "",
                 lineName: ""
             };
 
-            // --- 分流邏輯 1：電腦版使用者 (掃碼跳轉) ---
+            // --- 分流邏輯 1：電腦版使用者 (優化 GCLID 處理) ---
             if (!isMobile) {
                 payload.source = "PC_Bridge_Scan";
-                send(payload); 
+                send(payload); // 將 GCLID 傳送至 n8n 備份
                 window.location.hash = "done";
                 
                 setTimeout(() => {
-                    // 導向統一的 LINE OA，並夾帶 GCLID 訊號供 AI 學習
+                    // [優化] 跳轉網址必須夾帶 GCLID 才能進行強化學習
                     window.location.replace(`https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`);
                 }, 500);
                 return;
             }
 
-            // --- 分流邏輯 2：手機端且在 LINE 內部 (保持原樣) ---
+            // --- 分流邏輯 2：手機端且在 LINE 內部 (原封不動) ---
             if (isLine) {
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
@@ -94,7 +95,7 @@
                 return;
             }
 
-            // --- 分流邏輯 3：手機外部瀏覽器 (保持原樣) ---
+            // --- 分流邏輯 3：手機外部瀏覽器 (原封不動) ---
             send(payload);
             window.location.hash = "done";
             setTimeout(() => {
