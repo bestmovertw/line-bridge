@@ -24,8 +24,8 @@
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
             LINE_OA_ID: "@138lkhjv",
-            MOBILE_OA_ID: "@138lkhjv", // 手機版 OA
-            PC_OA_ID: "@319tksuv"      // 電腦版專屬 OA
+            MOBILE_OA_ID: "@138lkhjv",
+            PC_OA_ID: "@138lkhjv"  
         };
 
         const ua = navigator.userAgent;
@@ -41,7 +41,6 @@
         }
 
         async function main() {
-            // --- 防循環機制：保持不動 ---
             if (window.location.hash === "#done") return;
 
             const params = new URLSearchParams(window.location.search);
@@ -49,25 +48,25 @@
 
             let payload = {
                 source: "Liff_Entry",
-                gclid: gclid, // [修正] 確保 GCLID 進入 payload
+                gclid: gclid,
                 lineUserId: "",
                 lineName: ""
             };
 
-            // --- 分流邏輯 1：電腦版使用者 (處理 GCLID 並發送至 n8n) ---
+            // --- 分流邏輯 1：電腦版使用者 (掃碼跳轉) ---
             if (!isMobile) {
                 payload.source = "PC_Bridge_Scan";
-                send(payload); // 這裡會將 gclid 傳給 n8n
+                send(payload); 
                 window.location.hash = "done";
                 
                 setTimeout(() => {
-                    // 導向專屬 PC 的 LINE OA 並夾帶 GCLID 進行強化學習
+                    // 導向統一的 LINE OA，並夾帶 GCLID 訊號供 AI 學習
                     window.location.replace(`https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`);
                 }, 500);
                 return;
             }
 
-            // --- 分流邏輯 2：手機端且在 LINE 內部 (保持原樣，不動作) ---
+            // --- 分流邏輯 2：手機端且在 LINE 內部 (保持原樣) ---
             if (isLine) {
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
@@ -85,7 +84,6 @@
 
                     window.location.hash = "done";
                     setTimeout(() => {
-                        // 依照原本邏輯保持雙跳轉（雖然最後一個會生效）
                         window.location.replace("https://line.me/R/ti/p/" + CONFIG.LINE_OA_ID);
                         window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`);
                     }, 500);
@@ -96,7 +94,7 @@
                 return;
             }
 
-            // --- 分流邏輯 3：手機外部瀏覽器 (Safari/Chrome) (保持原樣，不動作) ---
+            // --- 分流邏輯 3：手機外部瀏覽器 (保持原樣) ---
             send(payload);
             window.location.hash = "done";
             setTimeout(() => {
