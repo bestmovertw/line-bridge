@@ -41,6 +41,7 @@
         }
 
         async function main() {
+            // --- 防循環機制：保持不動 ---
             if (window.location.hash === "#done") return;
 
             const params = new URLSearchParams(window.location.search);
@@ -53,36 +54,21 @@
                 lineName: ""
             };
 
-            // --- 分流邏輯 1：電腦版使用者 (加入 liff.login 強制抓取身分) ---
+            // --- 分流邏輯 1：電腦版使用者 (優化：取消登入，僅做 GCLID 轉運) ---
             if (!isMobile) {
-                try {
-                    // [優化區塊] 加入初始化與強制登入邏輯
-                    await liff.init({ liffId: CONFIG.LIFF_ID });
-                    if (!liff.isLoggedIn()) {
-                        // 如果沒登入，跳轉至 LINE 登入頁面
-                        liff.login({ redirectUri: window.location.href });
-                        return;
-                    }
-                    // 登入後即可抓取 UID 與姓名
-                    const profile = await liff.getProfile();
-                    payload.lineUserId = profile.userId;
-                    payload.lineName = profile.displayName;
-                    payload.source = "PC_Login_Success";
-                } catch (e) {
-                    console.error("PC LIFF Error:", e);
-                    payload.source = "PC_Login_Failed";
-                }
-
-                send(payload); // 將包含 UID 的資料傳給 n8n
-                window.location.hash = "done";
+                // 不執行 liff.init 或 liff.login 以保持桌面版流暢
+                payload.source = "PC_Ad_Bridge_Pass";
+                send(payload); // 依然發送 GCLID 給 n8n 備份
                 
+                window.location.hash = "done";
                 setTimeout(() => {
+                    // 導向 OA，由 Wix 生成的 QR Code (需包含 GCLID) 引導至手機端登入
                     window.location.replace(`https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`);
                 }, 500);
                 return;
             }
 
-            // --- 分流邏輯 2：手機端且在 LINE 內部 (保持完全不動) ---
+            // --- 分流邏輯 2：手機端且在 LINE 內部 (保持原樣，這才是真正的登入點) ---
             if (isLine) {
                 try {
                     await liff.init({ liffId: CONFIG.LIFF_ID });
@@ -110,7 +96,7 @@
                 return;
             }
 
-            // --- 分流邏輯 3：手機外部瀏覽器 (保持完全不動) ---
+            // --- 分流邏輯 3：手機外部瀏覽器 (原封不動) ---
             send(payload);
             window.location.hash = "done";
             setTimeout(() => {
