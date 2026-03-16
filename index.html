@@ -36,7 +36,7 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(data)
-            }).catch(err => console.log("Signal skipped", err));
+            }).catch(err => console.log("n8n sync skipped", err));
         }
 
         async function main() {
@@ -52,9 +52,9 @@
                 lineName: ""
             };
 
-            // --- 邏輯 A：電腦版 (只顯示 QR Code，不抓資料) ---
+            // --- 邏輯 1：電腦版使用者 (顯示 QR Code，僅負責傳遞 GCLID) ---
             if (!isMobile) {
-                payload.source = "PC_QR_Display";
+                payload.source = "PC_QR_Bridge_Display";
                 send(payload);
 
                 const currentUrl = window.location.href;
@@ -71,13 +71,12 @@
                 return; 
             }
 
-            // --- 邏輯 B：手機版 (不論是否在 LINE 內，一律強制抓取資料) ---
-            // 只要掃碼後是手機開啟，就會進到這裡
+            // --- 邏輯 2：手機版使用者 (掃碼後的捕獲點，支援所有瀏覽器) ---
             try {
                 await liff.init({ liffId: CONFIG.LIFF_ID });
                 
                 if (!liff.isLoggedIn()) {
-                    // 如果是用 Safari 掃碼，這裡會引導他登入 LINE，登入後才能抓到名字
+                    // 關鍵：這會引導掃碼後的用戶登入，確保抓得到名字
                     liff.login({ redirectUri: window.location.href });
                     return;
                 }
@@ -90,12 +89,12 @@
 
                 window.location.hash = "done";
                 setTimeout(() => {
-                    // 最終導向至官方帳號
+                    // 導向至 OA，功能完全不變
                     window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}?gclid=${gclid}`);
                 }, 500);
             } catch (e) {
                 console.error("LIFF Capture Error:", e);
-                // 失敗時的保底跳轉
+                // 失敗時保持跳轉功能，確保客人不流失
                 window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}?gclid=${gclid}`);
             }
         }
