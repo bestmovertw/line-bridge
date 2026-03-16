@@ -23,8 +23,8 @@
         const CONFIG = {
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
-            MOBILE_OA_ID: "@138lkhjv", // 手機版 OA
-            PC_OA_ID: "@319tksuv"      // 電腦版專屬 OA
+            MOBILE_OA_ID: "@138lkhjv",
+            PC_OA_ID: "@319tksuv"
         };
 
         function send(data) {
@@ -38,7 +38,6 @@
         }
 
         async function main() {
-            // 防跳轉迴圈斷路器
             if (window.location.hash === "#done") return;
 
             const params = new URLSearchParams(window.location.search);
@@ -47,8 +46,19 @@
             const isLine = ua.indexOf('line') > -1;
             const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
+            // --- 新增：抓取用戶 IP (使用 ipify 公開服務) ---
+            let userIP = "unknown";
+            try {
+                const ipResponse = await fetch('https://api.ipify.org?format=json');
+                const ipData = await ipResponse.json();
+                userIP = ipData.ip;
+            } catch (e) {
+                console.error("IP fetch failed", e);
+            }
+
             let payload = {
                 gclid: gclid,
+                user_ip: userIP, // 將 IP 加入 payload
                 source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
                 timestamp: new Date().toISOString(),
                 lineUserId: "",
@@ -59,7 +69,6 @@
             if (!isMobile) {
                 send(payload);
                 window.location.hash = "done";
-                // 導向專屬 PC 的 LINE OA
                 setTimeout(() => {
                     window.location.replace(`https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`);
                 }, 500);
