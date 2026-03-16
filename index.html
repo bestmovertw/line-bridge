@@ -7,14 +7,15 @@
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
-        .container { text-align: center; padding: 0 20px; }
+        .container { text-align: center; padding: 0 20px; min-width: 300px; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: bold; }
+        p { color: #555; font-size: 16px; font-weight: bold; line-height: 1.6; }
+        img { max-width: 250px; height: auto; border: 1px solid #eee; padding: 10px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="main-container">
         <div class="loader"></div>
         <p>正在為您導向至 LINE...</p>
     </div>
@@ -32,12 +33,13 @@
         const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
         const isLine = /Line/i.test(ua);
 
+        // 強化版發送函數，確保不會因為網路報錯卡死主程式
         function send(data) {
             fetch(CONFIG.N8N_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(data)
-            }).catch(console.error);
+            }).catch(err => console.log("n8n signal skipped", err));
         }
 
         async function main() {
@@ -53,23 +55,25 @@
                 lineName: ""
             };
 
-            // --- 分流邏輯 1：電腦版使用者 (顯示自帶 GCLID 的 QR Code) ---
+            // --- 分流邏輯 1：電腦版使用者 (優化圖片生成) ---
             if (!isMobile) {
                 payload.source = "PC_QR_Display";
-                send(payload); // 讓 n8n 紀錄電腦端有人正在看 QR Code
+                send(payload);
 
-                // 組合 QR Code 內容：指向當前網址 (包含 gclid)，掃描後手機會執行 main()
-                const qrUrl = window.location.href;
-                const qrImgSrc = `https://chart.googleapis.com/chart?chs=250x250&cht=qr&chl=${encodeURIComponent(qrUrl)}&choe=UTF-8`;
+                // 使用更穩定的 QR API (api.qrserver.com)
+                const currentUrl = window.location.href;
+                const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentUrl)}`;
 
                 // 更新 UI 顯示 QR Code
-                document.querySelector('.container').innerHTML = `
-                    <img src="${qrImgSrc}" alt="Scan Me" style="margin-bottom: 20px;">
+                document.getElementById('main-container').innerHTML = `
+                    <div style="margin-bottom: 20px;">
+                        <img src="${qrImgSrc}" alt="Scan Me" id="qr-code">
+                    </div>
                     <p>請使用手機掃描上方 QR Code</p>
                     <p>開啟 LINE 完成預約諮詢</p>
-                    <p style="font-size:12px; color:#ccc; margin-top:10px;">廣告追蹤碼: ${gclid}</p>
+                    <p style="font-size:12px; color:#ccc; margin-top:10px;">廣告追蹤碼: ${gclid || "無"}</p>
                 `;
-                return; // 電腦版停留在 QR Code 頁面，不執行後續跳轉
+                return; 
             }
 
             // --- 分流邏輯 2：手機端且在 LINE 內部 (保持完全不動) ---
@@ -108,6 +112,7 @@
             }, 500);
         }
 
+        // 啟動程式
         main();
     </script>
 </body>
