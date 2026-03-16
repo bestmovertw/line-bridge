@@ -53,33 +53,23 @@
                 lineName: ""
             };
 
-            // --- 分流邏輯 1：電腦版使用者 (加入 liff.login 強制抓取身分) ---
+            // --- 分流邏輯 1：電腦版使用者 (顯示自帶 GCLID 的 QR Code) ---
             if (!isMobile) {
-                try {
-                    // [優化區塊] 加入初始化與強制登入邏輯
-                    await liff.init({ liffId: CONFIG.LIFF_ID });
-                    if (!liff.isLoggedIn()) {
-                        // 如果沒登入，跳轉至 LINE 登入頁面
-                        liff.login({ redirectUri: window.location.href });
-                        return;
-                    }
-                    // 登入後即可抓取 UID 與姓名
-                    const profile = await liff.getProfile();
-                    payload.lineUserId = profile.userId;
-                    payload.lineName = profile.displayName;
-                    payload.source = "PC_Login_Success";
-                } catch (e) {
-                    console.error("PC LIFF Error:", e);
-                    payload.source = "PC_Login_Failed";
-                }
+                payload.source = "PC_QR_Display";
+                send(payload); // 讓 n8n 紀錄電腦端有人正在看 QR Code
 
-                send(payload); // 將包含 UID 的資料傳給 n8n
-                window.location.hash = "done";
-                
-                setTimeout(() => {
-                    window.location.replace(`https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`);
-                }, 500);
-                return;
+                // 組合 QR Code 內容：指向當前網址 (包含 gclid)，掃描後手機會執行 main()
+                const qrUrl = window.location.href;
+                const qrImgSrc = `https://chart.googleapis.com/chart?chs=250x250&cht=qr&chl=${encodeURIComponent(qrUrl)}&choe=UTF-8`;
+
+                // 更新 UI 顯示 QR Code
+                document.querySelector('.container').innerHTML = `
+                    <img src="${qrImgSrc}" alt="Scan Me" style="margin-bottom: 20px;">
+                    <p>請使用手機掃描上方 QR Code</p>
+                    <p>開啟 LINE 完成預約諮詢</p>
+                    <p style="font-size:12px; color:#ccc; margin-top:10px;">廣告追蹤碼: ${gclid}</p>
+                `;
+                return; // 電腦版停留在 QR Code 頁面，不執行後續跳轉
             }
 
             // --- 分流邏輯 2：手機端且在 LINE 內部 (保持完全不動) ---
