@@ -3,44 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>正在導向至 LINE</title>
+    <title>正在啟動 LINE</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #ffffff; }
-        .container { text-align: center; padding: 0 20px; min-width: 300px; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        .container { text-align: center; padding: 0 20px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #555; font-size: 16px; font-weight: bold; line-height: 1.6; }
-        img { max-width: 250px; height: auto; border: 1px solid #eee; padding: 10px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        p { color: #555; font-size: 16px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container" id="main-container">
         <div class="loader"></div>
-        <p>正在為您導向至 LINE...</p>
+        <p>正在為您開啟 LINE App...</p>
     </div>
 
     <script>
         const CONFIG = {
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
-            LINE_OA_ID: "@138lkhjv",
-            MOBILE_OA_ID: "@138lkhjv"
+            LINE_OA_ID: "@138lkhjv"
         };
 
         const ua = navigator.userAgent;
         const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
 
+        // 【優化】使用 keepalive，確保頁面跳轉時資料傳輸不被中斷
         function send(data) {
             fetch(CONFIG.N8N_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(data)
-            }).catch(err => console.log("n8n sync skipped", err));
+                body: JSON.stringify(data),
+                keepalive: true 
+            }).catch(() => {});
         }
 
         async function main() {
-            // 1. 防循環機制
             if (window.location.hash === "#done") return;
 
             const params = new URLSearchParams(window.location.search);
@@ -53,55 +52,46 @@
                 lineName: ""
             };
 
-            // --- 邏輯 1：電腦版使用者 (顯示 QR Code) ---
+            // --- 邏輯 1：電腦版 (維持 QR Code 顯示) ---
             if (!isMobile) {
-                payload.source = "PC_QR_Bridge_Display";
+                payload.source = "PC_QR_Bridge";
                 send(payload);
 
-                // 生成包含當前 gclid 的 QR Code，指向本頁
                 const currentUrl = window.location.href;
                 const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentUrl)}`;
 
                 document.getElementById('main-container').innerHTML = `
-                    <div style="margin-bottom: 20px;">
-                        <img src="${qrImgSrc}" alt="Scan Me">
-                    </div>
-                    <p>請使用手機掃描上方 QR Code</p>
-                    <p>開啟 LINE 完成預約諮詢</p>
-                    <p style="font-size:12px; color:#ccc; margin-top:10px;">廣告追蹤碼: ${gclid || "無"}</p>
+                    <img src="${qrImgSrc}" alt="Scan Me" style="max-width:250px; margin-bottom:20px;">
+                    <p>請掃描 QR Code</p><p>使用手機 LINE 完成預約</p>
                 `;
-                return; // 電腦版結束於此
+                return;
             }
 
-            // --- 邏輯 2：手機版使用者 (手機點擊直接進入 LIFF) ---
+            // --- 邏輯 2：手機版 (極速直接跳轉) ---
             try {
-                // 初始化 LIFF (直接跳轉到 LINE 授權/登入)
                 await liff.init({ liffId: CONFIG.LIFF_ID });
                 
                 if (!liff.isLoggedIn()) {
-                    // 若未登入，直接導向 LINE 登入頁面
                     liff.login({ redirectUri: window.location.href });
                     return;
                 }
                 
-                // 抓取身分資訊
                 const profile = await liff.getProfile();
                 payload.lineUserId = profile.userId;
                 payload.lineName = profile.displayName;
-                payload.source = "Mobile_Direct_Click_Success";
-                send(payload);
+                payload.source = "Mobile_Direct_Jump";
+                
+                // [關鍵] 發送資料不等待，立刻執行下一行跳轉
+                send(payload); 
 
-                // 標記完成，防止回退時再次觸發
                 window.location.hash = "done";
                 
-                // 最後跳轉至 LINE 官方帳號
-                setTimeout(() => {
-                    window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}?gclid=${gclid}`);
-                }, 500);
+                // 使用強效協議直接喚起 App 頁面
+                const targetUrl = `https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`;
+                window.location.replace(targetUrl);
+
             } catch (e) {
-                console.error("Mobile LIFF Error:", e);
-                // 保底邏輯：出錯時依然讓客人進到 OA
-                window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}?gclid=${gclid}`);
+                window.location.replace(`https://line.me/R/ti/p/${CONFIG.LINE_OA_ID}?gclid=${gclid}`);
             }
         }
 
