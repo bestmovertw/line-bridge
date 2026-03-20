@@ -24,7 +24,7 @@
             LIFF_ID: "2009064962-w2XqDG82",
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
             MOBILE_OA_ID: "@138lkhjv",
-            PC_OA_ID: "@319tksuv"
+            PC_OA_ID: "@138lkhjv"
         };
 
         function send(data) {
@@ -46,19 +46,23 @@
             const isLine = ua.indexOf('line') > -1;
             const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
-            // --- 新增：抓取用戶 IP (使用 ipify 公開服務) ---
+            // --- 優化：IP 抓取加入 1.5 秒超時限制 ---
             let userIP = "unknown";
             try {
-                const ipResponse = await fetch('https://api.ipify.org?format=json');
+                // 讓 fetch 與 1500 毫秒的計時器賽跑
+                const ipResponse = await Promise.race([
+                    fetch('https://api.ipify.org?format=json'),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('ip_timeout')), 1500))
+                ]);
                 const ipData = await ipResponse.json();
                 userIP = ipData.ip;
             } catch (e) {
-                console.error("IP fetch failed", e);
+                console.warn("IP fetch timeout or failed, proceeding with unknown.");
             }
 
             let payload = {
                 gclid: gclid,
-                user_ip: userIP, // 將 IP 加入 payload
+                user_ip: userIP,
                 source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
                 timestamp: new Date().toISOString(),
                 lineUserId: "",
@@ -78,23 +82,38 @@
             // --- 分流邏輯 2：手機端且在 LINE 內部 ---
             if (isLine) {
                 try {
-                    await liff.init({ liffId: CONFIG.LIFF_ID });
-                    if (!liff.isLoggedIn()) {
-                        liff.login({ redirectUri: window.location.href });
-                        return;
-                    }
-                    const profile = await liff.getProfile();
-                    payload.lineUserId = profile.userId;
-                    payload.lineName = profile.displayName;
-                    payload.source = "Mobile_Success_UID";
-                    
+                    // --- 優化：核心 LIFF 作業加入 2 秒超時限制 ---
+                    await Promise.race([
+                        (async () => {
+                            await liff.init({ liffId: CONFIG.LIFF_ID });
+                            if (!liff.isLoggedIn()) {
+                                liff.login({ redirectUri: window.location.href });
+                                await new Promise(() => {}); // 登入跳轉中，暫停執行後續代碼
+                            }
+                            const profile = await liff.getProfile();
+                            payload.lineUserId = profile.userId;
+                            payload.lineName = profile.displayName;
+                            payload.source = "Mobile_Success_UID";
+                            
+                            send(payload);
+                            window.location.hash = "done";
+                            setTimeout(() => {
+                                window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`);
+                            }, 500);
+                        })(),
+                        // 2000 毫秒的定時炸彈，時間到就報錯強制中斷
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('liff_timeout')), 2000))
+                    ]);
+                } catch (e) {
+                    console.warn("LIFF logic timed out or failed. Bypassing.", e);
+                    // 萬一卡住，標記超時狀態並將收集到的殘餘資料(如GCLID/IP)發送出去
+                    payload.source = (e.message === 'liff_timeout') ? "Mobile_LIFF_Timeout_Bypass" : "Mobile_LIFF_Error_Bypass";
                     send(payload);
                     window.location.hash = "done";
+                    // 強制放行，確保客人順利進入官方帳號
                     setTimeout(() => {
                         window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`);
-                    }, 500);
-                } catch (e) {
-                    window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`);
+                    }, 200);
                 }
                 return;
             }
