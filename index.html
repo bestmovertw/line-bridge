@@ -11,6 +11,7 @@
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00b900; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         p { color: #555; font-size: 16px; font-weight: bold; }
+        .call-btn { margin-top: 15px; display: inline-block; padding: 10px 20px; font-size: 18px; font-weight: bold; color: #ffffff; background-color: #00b900; text-decoration: none; border-radius: 50px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
@@ -18,6 +19,7 @@
         <div id="loader" class="loader"></div>
         <p id="status-text">正在同步預約資訊，請稍候...</p>
         <p>若無法加入，請直接打給阿哲 0912 04 03 09</p>
+        <a href="tel:+886912040309" class="call-btn">☎️打給阿哲經理</a>
     </div>
 
     <script>
