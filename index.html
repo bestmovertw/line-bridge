@@ -12,8 +12,7 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         p { color: #555; font-size: 16px; font-weight: bold; }
         .btn-group { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
-        .line-btn { display: none; padding: 12px 20px; font-size: 18px; font-weight: bold; color: #ffffff; background-color: #00b900; text-decoration: none; border-radius: 50px;
-box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .line-btn { display: none; padding: 12px 20px; font-size: 18px; font-weight: bold; color: #ffffff; background-color: #00b900; text-decoration: none; border-radius: 50px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .call-btn { padding: 12px 20px; font-size: 18px; font-weight: bold; color: #333; background-color: #f0f0f0; text-decoration: none; border-radius: 50px; }
     </style>
 </head>
@@ -21,8 +20,9 @@ box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     <div class="container">
         <div id="loader" class="loader"></div>
         <p id="status-text">正在為您開啟 LINE，請稍候...</p>
-
+        
         <div class="btn-group">
+            <!-- 隱藏的手動按鈕，若自動跳轉失敗時顯示 -->
             <a id="manual-line-btn" href="#" class="line-btn">點此手動加入 LINE</a>
             <a href="tel:+886912040309" class="call-btn">☎️若無法加入，請打給阿哲</a>
         </div>
@@ -34,15 +34,16 @@ box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
             N8N_URL: "https://n8n.parzival0626.com/webhook/88164885-9c6f-4956-9b61-593146ec099f",
             MOBILE_OA_ID: "@138lkhjv",
             PC_OA_ID: "@138lkhjv",
-            FALLBACK_URL: "https://lin.ee/rWD3vwN"
+            FALLBACK_URL: "https://lin.ee/rWD3vwN" // 加入指定的備用網址
         };
 
+        // 顯示手動加入按鈕的備用機制
         function showManualButton() {
             document.getElementById('loader').style.display = 'none';
             document.getElementById('status-text').innerText = "若未自動開啟，請點擊下方按鈕：";
-            const btn = document.getElementById('manual-line-btn');
-            btn.href = CONFIG.FALLBACK_URL;
-            btn.style.display = 'inline-block';
+            const lineBtn = document.getElementById('manual-line-btn');
+            lineBtn.href = CONFIG.FALLBACK_URL; // 直接使用您提供的短網址
+            lineBtn.style.display = 'inline-block';
         }
 
         function send(data) {
@@ -56,95 +57,77 @@ box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         }
 
         async function main() {
+            // 改用 sessionStorage 避免 URL #done 造成的返回卡死
+            if (sessionStorage.getItem("redirected")) {
+                showManualButton();
+                return;
+            }
+
             const params = new URLSearchParams(window.location.search);
+            const gclid = params.get('gclid') || "";
             const ua = navigator.userAgent.toLowerCase();
             const isLine = ua.indexOf('line') > -1;
             const isMobile = /iphone|ipad|ipod|android/.test(ua);
 
-            // 重複進入保護（非 LINE 瀏覽器）
-            if (!isLine && sessionStorage.getItem("redirected")) {
-                showManualButton();
-                return;
+            let userIP = "unknown";
+            try {
+                const ipResponse = await Promise.race([
+                    fetch('https://api.ipify.org?format=json'),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('ip_timeout')), 1500))
+                ]);
+                const ipData = await ipResponse.json();
+                userIP = ipData.ip;
+            } catch (e) {
+                console.warn("IP fetch failed.");
             }
 
-            // GCLID：URL 優先，否則從 sessionStorage 取回（LIFF redirect 後）
-            const gclid = params.get('gclid') || sessionStorage.getItem('saved_gclid') || "";
-            if (gclid) sessionStorage.setItem('saved_gclid', gclid);
+            let payload = {
+                gclid: gclid,
+                user_ip: userIP,
+                source: isLine ? "Inside_Line" : (isMobile ? "Mobile_External" : "PC_Entry"),
+                timestamp: new Date().toISOString(),
+                lineUserId: "",
+                lineName: ""
+            };
 
-            // IP fetch 背景執行，不阻擋主流程，存進 sessionStorage
-            fetch('https://api.ipify.org?format=json')
-                .then(r => r.json())
-                .then(d => { if (d.ip) sessionStorage.setItem('saved_ip', d.ip); })
-                .catch(() => {});
+            // 設定第一順位目標跳轉網址（用於帶上 gclid 參數）
+            let targetUrl = isMobile ? 
+                (isLine ? `https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}` : `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`) : 
+                `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`;
 
-            // ── LINE 內部瀏覽器：走 LIFF 取 userId ──
+            // 若為 LINE 內部瀏覽器，執行 LIFF 邏輯 (加長超時時間至 8 秒)
             if (isLine) {
-                let payload = {
-                    gclid:      sessionStorage.getItem('saved_gclid') || gclid,
-                    user_ip:    sessionStorage.getItem('saved_ip')    || "unknown",
-                    source:     "Inside_Line",
-                    timestamp:  new Date().toISOString(),
-                    lineUserId: "",
-                    lineName:   ""
-                };
-
                 try {
                     await Promise.race([
                         (async () => {
                             await liff.init({ liffId: CONFIG.LIFF_ID });
-
                             if (!liff.isLoggedIn()) {
-                                // login 前等 1 秒，讓 IP fetch 有機會存進 sessionStorage
-                                await new Promise(r => setTimeout(r, 1000));
                                 liff.login({ redirectUri: window.location.href });
-                                await new Promise(() => {}); // 等 redirect，不往下執行
+                                await new Promise(() => {}); 
                             }
-
                             const profile = await liff.getProfile();
                             payload.lineUserId = profile.userId;
-                            payload.lineName   = profile.displayName;
-                            payload.source     = "Mobile_Success_UID";
-                            // redirect 後從 sessionStorage 取最新值
-                            payload.gclid   = sessionStorage.getItem('saved_gclid') || gclid;
-                            payload.user_ip = sessionStorage.getItem('saved_ip')    || "unknown";
+                            payload.lineName = profile.displayName;
+                            payload.source = "Mobile_Success_UID";
                         })(),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('liff_timeout')), 8000))
                     ]);
                 } catch (e) {
-                    payload.source = (e.message === 'liff_timeout')
-                        ? "Mobile_LIFF_Timeout_Bypass"
-                        : "Mobile_LIFF_Error_Bypass";
+                    payload.source = (e.message === 'liff_timeout') ? "Mobile_LIFF_Timeout_Bypass" : "Mobile_LIFF_Error_Bypass";
                 }
-
-                send(payload);
-                sessionStorage.removeItem('saved_gclid');
-                sessionStorage.removeItem('saved_ip');
-                showManualButton();
-                setTimeout(() => window.location.replace(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`), 300);
-                return;
             }
 
-            // ── 外部瀏覽器（手機外部 / PC）──
-            // 等最多 800ms 讓 IP fetch 有機會存進來
-            await new Promise(r => setTimeout(r, 800));
-
-            // 修正了這裡的 Syntax Error，移除了重複的欄位
-            send({
-                gclid:      sessionStorage.getItem('saved_gclid') || gclid,
-                user_ip:    sessionStorage.getItem('saved_ip')    || "unknown",
-                lineUserId: "",
-                lineName:   "",
-                source:     isMobile ? "Mobile_External" : "PC_Entry",
-                timestamp:  new Date().toISOString()
-            });
-
+            // 發送資料並記錄跳轉狀態
+            send(payload);
             sessionStorage.setItem("redirected", "true");
+            
+            // 立即顯示備用按鈕，以防 window.location.replace 被瀏覽器阻擋
             showManualButton();
 
-            const targetUrl = isMobile
-                ? `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`
-                : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`;
-            setTimeout(() => window.location.replace(targetUrl), 300);
+            // 嘗試自動跳轉
+            setTimeout(() => {
+                window.location.replace(targetUrl);
+            }, 300);
         }
 
         main();
