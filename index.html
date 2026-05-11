@@ -112,8 +112,6 @@
                         ]);
                     } catch (e) {
                         payload.source = (e.message === 'liff_timeout') ? "Mobile_LIFF_Timeout_Bypass" : "Mobile_LIFF_Error_Bypass";
-                        // 👉 LIFF 超時或失敗無法獲取 userId 時，馬上顯示手動按鈕
-                        showManualButton();
                     }
 
                     send(payload);
@@ -125,14 +123,7 @@
                     return;
                 }
 
-                // ==========================================
-                // 外部瀏覽器 (確定無法透過 LIFF 獲取 userId)
-                // ==========================================
-                
-                // 👉 提早顯示：不管接下來背景送資料或自動跳轉成不成功，按鈕先給客人看見！
-                showManualButton();
-
-                // 維持原本的等待緩衝
+                // 外部瀏覽器
                 await new Promise(r => setTimeout(r, 800));
 
                 send({
@@ -145,12 +136,13 @@
                 });
 
                 sessionStorage.setItem("redirected", "true");
+                showManualButton();
 
                 const targetUrl = isMobile
                     ? `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`
                     : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`;
                 
-                // 改用 href 確保嘗試自動跳轉
+                // 改用 href 確保跳轉
                 window.location.href = targetUrl;
 
             } catch (fatalError) {
