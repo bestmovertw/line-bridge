@@ -74,8 +74,15 @@
                 }
                 */
 
+                // 擷取 gclid, gbraid, wbraid
                 const gclid = params.get('gclid') || sessionStorage.getItem('saved_gclid') || "";
+                const gbraid = params.get('gbraid') || sessionStorage.getItem('saved_gbraid') || "";
+                const wbraid = params.get('wbraid') || sessionStorage.getItem('saved_wbraid') || "";
+
+                // 儲存至 sessionStorage
                 if (gclid) sessionStorage.setItem('saved_gclid', gclid);
+                if (gbraid) sessionStorage.setItem('saved_gbraid', gbraid);
+                if (wbraid) sessionStorage.setItem('saved_wbraid', wbraid);
 
                 fetch('https://api.ipify.org?format=json')
                     .then(r => r.json())
@@ -85,6 +92,8 @@
                 if (isLine) {
                     let payload = {
                         gclid:      sessionStorage.getItem('saved_gclid') || gclid,
+                        gbraid:     sessionStorage.getItem('saved_gbraid') || gbraid,
+                        wbraid:     sessionStorage.getItem('saved_wbraid') || wbraid,
                         user_ip:    sessionStorage.getItem('saved_ip')    || "unknown",
                         source:     "Inside_Line",
                         timestamp:  new Date().toISOString(),
@@ -105,8 +114,10 @@
                                 payload.lineUserId = profile.userId;
                                 payload.lineName   = profile.displayName;
                                 payload.source     = "Mobile_Success_UID";
-                                payload.gclid   = sessionStorage.getItem('saved_gclid') || gclid;
-                                payload.user_ip = sessionStorage.getItem('saved_ip')    || "unknown";
+                                payload.gclid      = sessionStorage.getItem('saved_gclid') || gclid;
+                                payload.gbraid     = sessionStorage.getItem('saved_gbraid') || gbraid;
+                                payload.wbraid     = sessionStorage.getItem('saved_wbraid') || wbraid;
+                                payload.user_ip    = sessionStorage.getItem('saved_ip')    || "unknown";
                             })(),
                             new Promise((_, reject) => setTimeout(() => reject(new Error('liff_timeout')), 8000))
                         ]);
@@ -116,6 +127,8 @@
 
                     send(payload);
                     sessionStorage.removeItem('saved_gclid');
+                    sessionStorage.removeItem('saved_gbraid');
+                    sessionStorage.removeItem('saved_wbraid');
                     sessionStorage.removeItem('saved_ip');
                     showManualButton();
                     // 改用 href 確保跳轉
@@ -128,6 +141,8 @@
 
                 send({
                     gclid:      sessionStorage.getItem('saved_gclid') || gclid,
+                    gbraid:     sessionStorage.getItem('saved_gbraid') || gbraid,
+                    wbraid:     sessionStorage.getItem('saved_wbraid') || wbraid,
                     user_ip:    sessionStorage.getItem('saved_ip')    || "unknown",
                     lineUserId: "",
                     lineName:   "",
@@ -138,9 +153,10 @@
                 sessionStorage.setItem("redirected", "true");
                 showManualButton();
 
+                // 將 gbraid 與 wbraid 一併附加到跳轉網址的參數中，確保不遺漏追蹤碼
                 const targetUrl = isMobile
-                    ? `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}`
-                    : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}`;
+                    ? `https://liff.line.me/${CONFIG.LIFF_ID}?gclid=${gclid}&gbraid=${gbraid}&wbraid=${wbraid}`
+                    : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${gclid}&gbraid=${gbraid}&wbraid=${wbraid}`;
                 
                 // 改用 href 確保跳轉
                 window.location.href = targetUrl;
