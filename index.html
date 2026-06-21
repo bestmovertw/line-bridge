@@ -36,6 +36,9 @@
             FALLBACK_URL: "https://lin.ee/yjCjRCL"
         };
 
+        // 同分頁總跳轉次數硬上限：超過就強制停，只顯示按鈕（終極防迴圈保險）
+        const MAX_HOPS = 2;
+
         // ---------- 工具函式 ----------
 
         function send(data) {
@@ -68,6 +71,21 @@
             return v;
         }
 
+        // 安全跳轉：每跳一次計數+1，超過上限就不跳、只顯示按鈕
+        function safeRedirect(url, statusMsg) {
+            let hops = parseInt(sessionStorage.getItem('hop_count') || "0", 10);
+            hops += 1;
+            sessionStorage.setItem('hop_count', String(hops));
+            // 先把按鈕備好（使用者隨時能手動點）
+            showManualButton(url, statusMsg);
+            if (hops > MAX_HOPS) {
+                // 已達上限 → 不再自動跳，停在這頁讓使用者手動點
+                document.getElementById('status-text').innerText = "請點擊下方綠色按鈕加入 LINE：";
+                return;
+            }
+            window.location.assign(url);
+        }
+
         // ---------- 主流程 ----------
 
         async function main() {
@@ -76,10 +94,13 @@
                 const ua = navigator.userAgent.toLowerCase();
                 const isLineUA = ua.indexOf('line') > -1;
                 const isMobile = /iphone|ipad|ipod|android/.test(ua);
+                const host = window.location.hostname.toLowerCase();
+                const onLiffHost = host.indexOf('liff.line.me') > -1 || host.indexOf('line.me') > -1;
 
-                // ★ 關鍵旗標：只要這次載入是「已經被導去 liff.line.me 之後回到的頁面」，
-                //   就標記 in_liff=1，之後絕不再往 liff.line.me 跳，從根斷開互跳迴圈。
-                const inLiffFlag = params.get('in_liff') === '1';
+                // ★ 進過 liff 的旗標：URL 或 sessionStorage 任一有，就算進過 ★
+                const enteredLiff =
+                    params.get('in_liff') === '1' ||
+                    sessionStorage.getItem('entered_liff') === '1';
 
                 const gclid  = getParam(params, 'gclid',  'saved_gclid');
                 const gbraid = getParam(params, 'gbraid', 'saved_gbraid');
@@ -93,12 +114,12 @@
                 const addFriendUrl = `https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`;
 
                 // ============================================================
-                // 判定是否進入「第二段（取 profile）」：
-                // 不再只靠 UA 含 line，而是「UA 含 line」或「已帶 in_liff 旗標」皆可。
-                // 後者涵蓋 Chrome 無痕：它在自己分頁開 liff.line.me，UA 不含 line，
-                // 但只要 liff.init 能成功，就應該嘗試取 profile，而非又往外跳。
+                // 進第二段（取 profile）的條件：UA含line / 進過liff / 在line.me網域
+                // 任一成立即進，並立刻把 entered_liff 寫進 sessionStorage 鎖住
                 // ============================================================
-                if (isLineUA || inLiffFlag) {
+                if (isLineUA || enteredLiff || onLiffHost) {
+                    sessionStorage.setItem('entered_liff', '1');
+
                     let payload = {
                         gclid, gbraid, wbraid,
                         user_ip:    sessionStorage.getItem('saved_ip') || "unknown",
@@ -108,7 +129,7 @@
                         lineName:   ""
                     };
 
-                    const loginTry = parseInt(params.get('login_try') || "0", 10);
+                    const loginTry = parseInt(sessionStorage.getItem('login_try') || "0", 10);
                     const MAX_LOGIN_TRY = 1;
 
                     try {
@@ -120,10 +141,8 @@
                                     if (loginTry >= MAX_LOGIN_TRY) {
                                         throw new Error('login_blocked');
                                     }
-                                    const back = new URL(window.location.href);
-                                    back.searchParams.set('in_liff', '1');
-                                    back.searchParams.set('login_try', String(loginTry + 1));
-                                    liff.login({ redirectUri: back.toString() });
+                                    sessionStorage.setItem('login_try', String(loginTry + 1));
+                                    liff.login({ redirectUri: window.location.href });
                                     await new Promise(() => {});
                                 }
 
@@ -142,15 +161,17 @@
                     }
 
                     send(payload);
-                    // ★ 無論成功與否，第二段結束都直接去加好友，絕不再往 liff.line.me 跳
-                    showManualButton(addFriendUrl, "即將帶您加入好友，若未自動開啟請點下方按鈕：");
-                    window.location.assign(addFriendUrl);
+                    // 清掉旗標避免影響下次（同分頁再進）
+                    safeRedirect(addFriendUrl, "即將帶您加入好友，若未自動開啟請點下方按鈕：");
                     return;
                 }
 
                 // ============================================================
-                // 第一段：純外部瀏覽器（尚未進過 liff）→ 導去 liff.line.me 並帶 in_liff=1
+                // 第一段：純外部瀏覽器 → 導去 liff.line.me（手機）並寫旗標
                 // ============================================================
+
+                // 先把「即將進 liff」記在 sessionStorage，跳回來就算 URL 被洗掉也認得
+                sessionStorage.setItem('entered_liff', '1');
 
                 const qs =
                     `in_liff=1` +
@@ -162,13 +183,11 @@
                     ? `https://liff.line.me/${CONFIG.LIFF_ID}?${qs}`
                     : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${encodeURIComponent(gclid)}&gbraid=${encodeURIComponent(gbraid)}&wbraid=${encodeURIComponent(wbraid)}`;
 
-                showManualButton(targetUrl, "若未自動開啟，請點擊下方按鈕加入 LINE：");
-                window.location.assign(targetUrl);
+                safeRedirect(targetUrl, "若未自動開啟，請點擊下方按鈕加入 LINE：");
 
             } catch (fatalError) {
                 console.error("發生嚴重錯誤，強制啟動備用跳轉", fatalError);
                 showManualButton(CONFIG.FALLBACK_URL, "開啟發生問題，請點下方按鈕：");
-                window.location.href = CONFIG.FALLBACK_URL;
             }
         }
 
