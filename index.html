@@ -92,8 +92,7 @@
                     .catch(() => {});
 
                 // ============================================================
-                // 第二段：LINE App 內部（LIFF）→ 拿 userId / lineName
-                // ★ 只有這裡送 webhook，且資料完整（gclid + userId + lineName）★
+                // 第二段：LINE / LIFF 環境 → 拿 userId / lineName
                 // ============================================================
                 if (isLine) {
                     const addFriendUrl = `https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`;
@@ -107,41 +106,56 @@
                         lineName:   ""
                     };
 
-                    let gotProfile = false;
+                    // ★ 防無限登入迴圈：用 URL 上的 login_try 計數 ★
+                    // 每次呼叫 liff.login() 前，把 login_try+1 寫進 redirectUri。
+                    // 若回來時 login_try 已達上限仍未登入 → 放棄登入，直接放行加好友。
+                    const loginTry = parseInt(params.get('login_try') || "0", 10);
+                    const MAX_LOGIN_TRY = 1; // 最多嘗試 1 次登入跳轉，回來還沒登入就放棄
+
                     try {
                         await Promise.race([
                             (async () => {
                                 await liff.init({ liffId: CONFIG.LIFF_ID });
+
                                 if (!liff.isLoggedIn()) {
-                                    liff.login({ redirectUri: window.location.href });
-                                    await new Promise(() => {});
+                                    if (loginTry >= MAX_LOGIN_TRY) {
+                                        // 已經試過登入卻還是沒登入（Chrome 無痕擋第三方 cookie）
+                                        // → 不再呼叫 login()，直接拋出讓外層走 bypass
+                                        throw new Error('login_blocked');
+                                    }
+                                    // 還沒試過 → 嘗試登入，並在 redirectUri 帶上 login_try+1
+                                    const back = new URL(window.location.href);
+                                    back.searchParams.set('login_try', String(loginTry + 1));
+                                    liff.login({ redirectUri: back.toString() });
+                                    await new Promise(() => {}); // 跳轉中
                                 }
+
                                 const profile = await liff.getProfile();
                                 payload.lineUserId = profile.userId;
                                 payload.lineName   = profile.displayName;
                                 payload.source     = "Mobile_Success_UID";
                                 payload.user_ip    = sessionStorage.getItem('saved_ip') || "unknown";
-                                gotProfile = true;
                             })(),
                             new Promise((_, reject) => setTimeout(() => reject(new Error('liff_timeout')), 8000))
                         ]);
                     } catch (e) {
-                        payload.source = (e.message === 'liff_timeout')
-                            ? "Mobile_LIFF_Timeout_Bypass"
-                            : "Mobile_LIFF_Error_Bypass";
+                        if (e.message === 'login_blocked') {
+                            payload.source = "Mobile_LIFF_LoginBlocked_Bypass";
+                        } else if (e.message === 'liff_timeout') {
+                            payload.source = "Mobile_LIFF_Timeout_Bypass";
+                        } else {
+                            payload.source = "Mobile_LIFF_Error_Bypass";
+                        }
                     }
 
-                    // 只送這一筆完整資料（拿到 profile 才是你要的「完成加入」紀錄）
                     send(payload);
-
                     showManualButton(addFriendUrl, "即將帶您加入好友，若未自動開啟請點下方按鈕：");
                     window.location.assign(addFriendUrl);
                     return;
                 }
 
                 // ============================================================
-                // 第一段：外部瀏覽器（Safari / Chrome）
-                // ★ 不送 webhook，只負責把 gclid 帶去第二段 ★
+                // 第一段：外部瀏覽器（Safari / Chrome）→ 只帶參數去第二段
                 // ============================================================
 
                 const qs =
