@@ -44,19 +44,14 @@
                 for (const key in data) { formData.append(key, data[key]); }
                 if (window.fetch) {
                     fetch(CONFIG.N8N_URL, {
-                        method: 'POST',
-                        body: formData,
-                        mode: 'no-cors',
-                        keepalive: true
+                        method: 'POST', body: formData, mode: 'no-cors', keepalive: true
                     }).catch(() => {
                         if (navigator.sendBeacon) navigator.sendBeacon(CONFIG.N8N_URL, formData);
                     });
                 } else if (navigator.sendBeacon) {
                     navigator.sendBeacon(CONFIG.N8N_URL, formData);
                 }
-            } catch (err) {
-                console.error("Webhook 送出失敗", err);
-            }
+            } catch (err) { console.error("Webhook 送出失敗", err); }
         }
 
         function showManualButton(targetUrl, statusMsg) {
@@ -79,8 +74,12 @@
             try {
                 const params = new URLSearchParams(window.location.search);
                 const ua = navigator.userAgent.toLowerCase();
-                const isLine = ua.indexOf('line') > -1;
+                const isLineUA = ua.indexOf('line') > -1;
                 const isMobile = /iphone|ipad|ipod|android/.test(ua);
+
+                // ★ 關鍵旗標：只要這次載入是「已經被導去 liff.line.me 之後回到的頁面」，
+                //   就標記 in_liff=1，之後絕不再往 liff.line.me 跳，從根斷開互跳迴圈。
+                const inLiffFlag = params.get('in_liff') === '1';
 
                 const gclid  = getParam(params, 'gclid',  'saved_gclid');
                 const gbraid = getParam(params, 'gbraid', 'saved_gbraid');
@@ -91,12 +90,15 @@
                     .then(d => { if (d.ip) sessionStorage.setItem('saved_ip', d.ip); })
                     .catch(() => {});
 
-                // ============================================================
-                // 第二段：LINE / LIFF 環境 → 拿 userId / lineName
-                // ============================================================
-                if (isLine) {
-                    const addFriendUrl = `https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`;
+                const addFriendUrl = `https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`;
 
+                // ============================================================
+                // 判定是否進入「第二段（取 profile）」：
+                // 不再只靠 UA 含 line，而是「UA 含 line」或「已帶 in_liff 旗標」皆可。
+                // 後者涵蓋 Chrome 無痕：它在自己分頁開 liff.line.me，UA 不含 line，
+                // 但只要 liff.init 能成功，就應該嘗試取 profile，而非又往外跳。
+                // ============================================================
+                if (isLineUA || inLiffFlag) {
                     let payload = {
                         gclid, gbraid, wbraid,
                         user_ip:    sessionStorage.getItem('saved_ip') || "unknown",
@@ -106,11 +108,8 @@
                         lineName:   ""
                     };
 
-                    // ★ 防無限登入迴圈：用 URL 上的 login_try 計數 ★
-                    // 每次呼叫 liff.login() 前，把 login_try+1 寫進 redirectUri。
-                    // 若回來時 login_try 已達上限仍未登入 → 放棄登入，直接放行加好友。
                     const loginTry = parseInt(params.get('login_try') || "0", 10);
-                    const MAX_LOGIN_TRY = 1; // 最多嘗試 1 次登入跳轉，回來還沒登入就放棄
+                    const MAX_LOGIN_TRY = 1;
 
                     try {
                         await Promise.race([
@@ -119,15 +118,13 @@
 
                                 if (!liff.isLoggedIn()) {
                                     if (loginTry >= MAX_LOGIN_TRY) {
-                                        // 已經試過登入卻還是沒登入（Chrome 無痕擋第三方 cookie）
-                                        // → 不再呼叫 login()，直接拋出讓外層走 bypass
                                         throw new Error('login_blocked');
                                     }
-                                    // 還沒試過 → 嘗試登入，並在 redirectUri 帶上 login_try+1
                                     const back = new URL(window.location.href);
+                                    back.searchParams.set('in_liff', '1');
                                     back.searchParams.set('login_try', String(loginTry + 1));
                                     liff.login({ redirectUri: back.toString() });
-                                    await new Promise(() => {}); // 跳轉中
+                                    await new Promise(() => {});
                                 }
 
                                 const profile = await liff.getProfile();
@@ -139,33 +136,31 @@
                             new Promise((_, reject) => setTimeout(() => reject(new Error('liff_timeout')), 8000))
                         ]);
                     } catch (e) {
-                        if (e.message === 'login_blocked') {
-                            payload.source = "Mobile_LIFF_LoginBlocked_Bypass";
-                        } else if (e.message === 'liff_timeout') {
-                            payload.source = "Mobile_LIFF_Timeout_Bypass";
-                        } else {
-                            payload.source = "Mobile_LIFF_Error_Bypass";
-                        }
+                        if (e.message === 'login_blocked')      payload.source = "Mobile_LIFF_LoginBlocked_Bypass";
+                        else if (e.message === 'liff_timeout')  payload.source = "Mobile_LIFF_Timeout_Bypass";
+                        else                                    payload.source = "Mobile_LIFF_Error_Bypass";
                     }
 
                     send(payload);
+                    // ★ 無論成功與否，第二段結束都直接去加好友，絕不再往 liff.line.me 跳
                     showManualButton(addFriendUrl, "即將帶您加入好友，若未自動開啟請點下方按鈕：");
                     window.location.assign(addFriendUrl);
                     return;
                 }
 
                 // ============================================================
-                // 第一段：外部瀏覽器（Safari / Chrome）→ 只帶參數去第二段
+                // 第一段：純外部瀏覽器（尚未進過 liff）→ 導去 liff.line.me 並帶 in_liff=1
                 // ============================================================
 
                 const qs =
-                    `gclid=${encodeURIComponent(gclid)}` +
+                    `in_liff=1` +
+                    `&gclid=${encodeURIComponent(gclid)}` +
                     `&gbraid=${encodeURIComponent(gbraid)}` +
                     `&wbraid=${encodeURIComponent(wbraid)}`;
 
                 const targetUrl = isMobile
                     ? `https://liff.line.me/${CONFIG.LIFF_ID}?${qs}`
-                    : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?${qs}`;
+                    : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${encodeURIComponent(gclid)}&gbraid=${encodeURIComponent(gbraid)}&wbraid=${encodeURIComponent(wbraid)}`;
 
                 showManualButton(targetUrl, "若未自動開啟，請點擊下方按鈕加入 LINE：");
                 window.location.assign(targetUrl);
